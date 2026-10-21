@@ -179,6 +179,8 @@ dialog .row { justify-content: flex-start; margin-top: .6rem; }
 #floats { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 10; }
 .float { position: absolute; bottom: -4rem; display: flex; flex-direction: column; align-items: center; animation: rise 3.4s cubic-bezier(.2, .6, .3, 1) forwards; }
 .float .e { font-size: 3rem; }
+@keyframes fadeinout { 0% { opacity: 0; } 15%, 75% { opacity: 1; } 100% { opacity: 0; } }
+.play .float .e { font-size: 2.2rem; }
 .float .who { font-size: .75rem; font-weight: 700; color: var(--fam); background: var(--paper); padding: .1em .55em; border-radius: 999px; }
 @keyframes rise { 0% { transform: translateY(0) scale(.6); opacity: 0; } 15% { opacity: 1; transform: translateY(-14vh) scale(1); } 100% { transform: translateY(-62vh) scale(1.05); opacity: 0; } }
 
@@ -230,5 +232,7 @@ body.keepsake { max-width: 760px; margin: 0 auto; padding: 2.5rem 1.2rem 4rem; }
 .kmeta { color: var(--muted); font-size: .92rem; display: flex; flex-wrap: wrap; gap: .4rem; align-items: center; }
 
 @media (prefers-reduced-motion: reduce) {
-  .flip-in, .float, .ring-wrap.over, .reacts button.pop { animation: none; }
+  .flip-in, .ring-wrap.over, .reacts button.pop { animation: none; }
+  /* No movement: reactions fade in and out in place instead of rising */
+  .float { bottom: 24%; animation: fadeinout 3.4s ease forwards; }
 }
