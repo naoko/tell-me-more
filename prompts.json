@@ -1,0 +1,61 @@
+{
+  "_how_to_edit": "Add, remove or reword prompts in any list. Changes apply on the next card drawn, no restart needed. 'light' is always in play; the host unlocks 'warm' and 'deeper' from the tablet.",
+
+  "light": [
+    "A time you saw something you'd never seen before",
+    "The best meal you've ever had — where were you, and who were you with?",
+    "A time you were completely, hopelessly lost",
+    "A trip that didn't go to plan (but makes a great story now)",
+    "Something you were absolutely sure of as a kid that turned out to be wrong",
+    "The strangest job you've ever had",
+    "A time a total stranger surprised you",
+    "The best gift you've ever given or received",
+    "A time you laughed so hard you couldn't stop",
+    "Your first car — and one adventure in it",
+    "A small thing that made this year better",
+    "A time you tried something new and were terrible at it",
+    "The most unusual place you've ever slept",
+    "A pet with a bigger personality than most people",
+    "A song that instantly takes you back to a specific moment",
+    "Something you got in trouble for as a kid",
+    "The most memorable holiday or celebration you've had",
+    "An 'only in our family' tradition or habit",
+    "A time the weather completely changed your plans",
+    "A hobby you picked up — and maybe dropped",
+    "Something you made with your own hands that you're proud of",
+    "A time you were in the right place at the right time"
+  ],
+
+  "warm": [
+    "How you met your partner — the real version",
+    "Something your parents did that you now catch yourself doing",
+    "A family tradition you hope continues",
+    "Someone who believed in you before you believed in yourself",
+    "The best advice you've ever received — and who gave it",
+    "A piece of marriage advice you learned the hard way",
+    "A moment from a wedding you'll never forget",
+    "The moment you realized you were a grown-up",
+    "Your first home of your own — and one memory from it",
+    "A teacher, coach, or boss who changed your direction",
+    "A small kindness from someone that stuck with you",
+    "What you thought life would look like at 25 — and what actually happened",
+    "A risk you took that paid off",
+    "A moment you were proud of your kid (or someone you helped raise)",
+    "Something you'd tell your younger self",
+    "A place that feels like home, and why",
+    "A dish from your childhood and the person who made it"
+  ],
+
+  "deeper": [
+    "The hardest thing that happened this year — and what got you through it",
+    "A time you changed your mind about something important",
+    "A mistake that taught you something you still use",
+    "A moment you were truly scared",
+    "Someone you miss, and a story that shows who they were",
+    "A decision that changed the direction of your life",
+    "A time you had to start over",
+    "Something you're still learning to do well",
+    "What you hope people will say about you someday",
+    "A moment of luck you still think about"
+  ]
+}

@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#f4ece0">
+<title>Tell Me More</title>
+<link rel="stylesheet" href="/web/app.css">
+</head>
+<body class="play">
+  <div id="app"></div>
+  <div id="conn">Reconnecting…</div>
+
+<script src="/web/common.js"></script>
+<script>
+const { act, esc, fmt, remaining, toast, cardHTML, miniCardHTML } = TellMeMore;
+const REACTIONS = ['❤️', '😂', '😮', '👏', '🥲'];
+const $ = (s) => document.querySelector(s);
+
+const store = {
+  get() { try { return localStorage.getItem('tellmemore_id'); } catch (_) { return null; } },
+  set(v) { try { localStorage.setItem('tellmemore_id', v); } catch (_) { /* private mode */ } },
+};
+let myId = store.get();
+let S = null, me = null, view = '', key = '', pickedFamily = null, lastFlip = '', buzzed = '';
+
+const pAct = (a, extra = {}) => act(a, { player_id: myId, ...extra }).catch((e) => toast(e.message));
+const P = (id) => S.players.find((p) => p.id === id);
+
+TellMeMore.connect((s) => { S = s; render(); });
+
+function render() {
+  me = S.players.find((p) => p.id === myId) || null;
+  if (!me) renderJoin(); else renderGame();
+  tick();
+}
+
+function renderJoin() {
+  if (view !== 'join') {
+    view = 'join';
+    key = '';
+    $('#app').innerHTML = `<div class="join">
+      <div class="brand-big">Tell Me <span class="kanji">More</span></div>
+      <p class="lede">A story game for tonight.</p>
+      <form id="joinform">
+        <label class="lbl" for="name">Your name</label>
+        <input id="name" autocomplete="given-name" maxlength="24" placeholder="First name" enterkeyhint="done">
+        <div class="lbl">Which side are you on?</div>
+        <div class="famchoice" id="famchoice"></div>
+        <button class="btn primary big" type="submit">Join</button>
+      </form></div>`;
+    $('#joinform').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = $('#name').value.trim();
+      if (!name) return toast('Add your name first');
+      if (pickedFamily === null) return toast('Pick a side first');
+      try {
+        const r = await act('join', { name, family: pickedFamily });
+        myId = r.player_id;
+        store.set(myId);
+        render();
+      } catch (err) { toast(err.message); }
+    });
+  }
+  $('#famchoice').innerHTML = [0, 1].map((f) =>
+    `<button type="button" class="famopt fam-${f}${pickedFamily === f ? ' on' : ''}" data-fam="${f}">${esc(S.settings.families[f])}</button>`).join('');
+}
+
+function handButton() {
+  if (me.hand) {
+    const pos = S.queue.indexOf(me.id) + 1;
+    return `<button class="btn hand on" data-act="lower_hand">✋ ${pos ? `#${pos} in line` : 'Hand up'} · tap to lower</button>`;
+  }
+  return `<button class="btn hand" data-act="raise_hand">✋ I have a question</button>`;
+}
+
+function timerBlock() {
+  return `<div class="ring-wrap" id="ring">
+    <svg class="ring" viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52"/><circle class="bar" id="ringbar" cx="60" cy="60" r="52" pathLength="100"/></svg>
+    <div class="ring-center"><div class="ring-time" id="tval"></div><div class="ring-note" id="tnote"></div></div></div>`;
+}
+
+function renderGame() {
+  const t = P(S.teller);
+  const mine = !!t && t.id === me.id;
+  const k = JSON.stringify([S.phase, S.teller, S.prompt, S.timer && [S.timer.ends_at, S.timer.paused_left, S.timer.total],
+    S.asker, S.queue, me, t && t.name, S.settings.families, S.phase === 'lobby' ? S.players.length : 0]);
+  if (view === 'game' && k === key) return;
+  view = 'game';
+  key = k;
+  const f = t ? t.family : 0;
+  let body = '';
+
+  if (S.phase === 'lobby') {
+    body = `<div class="big-emoji">🍵</div><h2>You're in!</h2>
+      <p class="hint">${S.players.length} ${S.players.length === 1 ? 'person' : 'people'} here. Waiting for the host to start.</p>
+      <div class="howto"><b>How it works</b><ol>
+        <li>When it's your turn, draw a card and tell a short, true story.</li>
+        <li>Don't like your card? You get one free swap.</li>
+        <li>Afterwards, everyone can ask you questions. ✋</li></ol></div>`;
+  } else if (mine) {
+    if (S.phase === 'ready') {
+      body = `<h2>You're up! ✨</h2>
+        <button class="card back" data-act="draw"><span class="seal">?</span><span class="tap">Tap to draw your card</span></button>`;
+    } else if (S.phase === 'card') {
+      const flip = S.prompt.text !== lastFlip; lastFlip = S.prompt.text;
+      body = `<div class="eyebrow">Your card</div>${cardHTML(S.prompt, flip)}
+        <p class="hint">Take a breath. ${fmt(S.settings.story_secs * 1000)} on the clock — finishing early is fine.</p>
+        <div class="stack"><button class="btn primary big" data-act="start_story">Start my story</button>
+        ${me.swap_used ? '<p class="hint">Free swap used — the host can still swap for you.</p>' : '<button class="btn" data-act="swap">Swap card (1 free)</button>'}</div>`;
+    } else if (S.phase === 'telling') {
+      body = `<div class="eyebrow">You're telling</div>${miniCardHTML(S.prompt)}${timerBlock()}
+        <div class="stack"><button class="btn primary big" data-act="end_story">I'm done → questions</button></div>`;
+    } else if (S.phase === 'questions') {
+      const asker = P(S.asker);
+      const q = S.queue.map((id) => {
+        const p = P(id);
+        return `<li><span class="chip fam-${p.family}">${esc(p.name)}</span><span class="grow"></span>
+          <button class="btn small primary" data-act="call_on" data-target="${id}">Call on</button></li>`;
+      }).join('');
+      body = `<h2>Questions for you</h2>
+        ${asker ? `<div class="asking">🎤 <b>${esc(asker.name)}</b> is asking</div>` : ''}
+        ${q ? `<ol class="queue">${q}</ol>` : (asker ? '' : '<p class="hint">Waiting for hands to go up…</p>')}
+        <p class="hint"><span id="tval"></span> <span id="tnote"></span></p>
+        <div class="stack"><button class="btn primary big" data-act="next_turn">That's my story — next!</button></div>`;
+    }
+  } else {
+    if (S.phase === 'ready') {
+      body = `<div class="eyebrow">Up next</div><div class="teller-name fam-${f}">${esc(t.name)}</div><p class="hint">is drawing a card…</p>`;
+    } else if (S.phase === 'card') {
+      const flip = S.prompt.text !== lastFlip; lastFlip = S.prompt.text;
+      body = `<div class="eyebrow">${esc(t.name)} drew</div>${cardHTML(S.prompt, flip)}`;
+    } else if (S.phase === 'telling') {
+      body = `<div class="eyebrow fam-${f}">${esc(t.name)} is telling</div>${miniCardHTML(S.prompt)}
+        <div class="fam-${f}">${timerBlock()}</div>
+        <div class="stack">${handButton()}</div>
+        <p class="hint">Got a question? Raise your hand now — you'll be in line for after the story.</p>`;
+    } else if (S.phase === 'questions') {
+      const asker = P(S.asker);
+      if (S.asker === me.id) {
+        body = `<div class="asking-me">🎤 You're up — ask ${esc(t.name)} your question!</div>
+          <div class="stack"><button class="btn" data-act="done_asking">Done asking</button></div>`;
+      } else {
+        body = `<div class="eyebrow">Questions for</div><div class="teller-name fam-${f}">${esc(t.name)}</div>
+          ${miniCardHTML(S.prompt)}
+          ${asker ? `<div class="asking">🎤 <b>${esc(asker.name)}</b> is asking</div>` : ''}
+          <div class="stack">${handButton()}</div>`;
+      }
+    }
+  }
+
+  $('#app').innerHTML = `<header class="me fam-${me.family}"><span class="chip">${esc(me.name)}</span>
+      <span class="hint">${esc(S.settings.families[me.family])}</span></header>
+    <main class="pmain">${body}</main>
+    ${S.phase !== 'lobby' ? `<nav class="reacts">${REACTIONS.map((e) => `<button data-react="${e}" aria-label="React ${e}">${e}</button>`).join('')}</nav>` : ''}`;
+}
+
+function tick() {
+  if (!S || !me || !S.timer || !['telling', 'questions'].includes(S.phase)) return;
+  const rem = remaining(S.timer);
+  const over = rem <= 0;
+  const near = !over && rem <= 30000;
+  const paused = S.timer.ends_at == null;
+  const tv = $('#tval'); if (tv) tv.textContent = fmt(rem);
+  const bar = $('#ringbar'); if (bar) bar.style.strokeDashoffset = String(100 - (100 * rem) / S.timer.total);
+  const ring = $('#ring');
+  if (ring) { ring.classList.toggle('near', near); ring.classList.toggle('over', over); }
+  const note = $('#tnote');
+  if (note) {
+    if (S.phase === 'telling') note.textContent = paused ? 'paused' : over ? 'time to wrap up' : near ? 'bring it home' : '';
+    else note.textContent = over ? 'one last question' : 'for questions';
+  }
+  const k = `${S.story_no}-${S.phase}`;
+  if (S.teller === me.id && S.phase === 'telling' && over && !paused && buzzed !== k) {
+    buzzed = k;
+    if (navigator.vibrate) navigator.vibrate([120, 80, 120]);
+  }
+}
+setInterval(tick, 250);
+
+document.addEventListener('click', (e) => {
+  const fam = e.target.closest('[data-fam]');
+  if (fam) { pickedFamily = +fam.dataset.fam; renderJoin(); return; }
+
+  const r = e.target.closest('[data-react]');
+  if (r) {
+    r.classList.remove('pop'); void r.offsetWidth; r.classList.add('pop');
+    pAct('react', { emoji: r.dataset.react });
+    return;
+  }
+
+  const b = e.target.closest('[data-act]');
+  if (!b) return;
+  pAct(b.dataset.act, b.dataset.target ? { target: b.dataset.target } : {});
+});
+</script>
+</body>
+</html>

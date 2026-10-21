@@ -1,0 +1,5 @@
+# Saved stories from each game night stay on your machine
+stories/
+__pycache__/
+*.pyc
+.DS_Store

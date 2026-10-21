@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="theme-color" content="#f4ece0">
+<title>Tell Me More · Host</title>
+<link rel="stylesheet" href="/web/app.css">
+</head>
+<body class="host">
+  <header class="topbar">
+    <div class="brand">Tell Me <span class="kanji">More</span></div>
+    <div class="seg" role="group" aria-label="Prompt depth">
+      <button data-act="level" data-level="1">Light</button>
+      <button data-act="level" data-level="2">+ Warm</button>
+      <button data-act="level" data-level="3">+ Deeper</button>
+    </div>
+    <span class="spacer"></span>
+    <span id="count"></span>
+    <button class="btn small" data-act="open_settings">⚙︎ Settings</button>
+  </header>
+
+  <main id="stage"></main>
+
+  <aside id="side">
+    <div id="people"></div>
+    <form class="addform" id="addform" autocomplete="off">
+      <span class="lbl">Add someone without a phone</span>
+      <input id="addname" placeholder="Name" maxlength="24">
+      <select id="addfam"></select>
+      <button class="btn" type="submit">Add</button>
+    </form>
+  </aside>
+
+  <div id="floats"></div>
+  <div id="conn">Reconnecting…</div>
+  <div id="keywarn" hidden>This page needs the host link with ?key=… (it's printed when the server starts).</div>
+
+  <dialog id="settings">
+    <form method="dialog" id="setform">
+      <h2>Settings</h2>
+      <label>Story time
+        <select name="story_secs">
+          <option value="60">1 minute</option><option value="90">1½ minutes</option>
+          <option value="120">2 minutes</option><option value="150">2½ minutes</option>
+          <option value="180">3 minutes</option><option value="240">4 minutes</option>
+          <option value="300">5 minutes</option>
+        </select>
+      </label>
+      <label>Question time
+        <select name="question_secs">
+          <option value="60">1 minute</option><option value="120">2 minutes</option>
+          <option value="180">3 minutes</option><option value="240">4 minutes</option>
+          <option value="300">5 minutes</option><option value="420">7 minutes</option>
+        </select>
+      </label>
+      <label>First side's name <input name="fam0" maxlength="24"></label>
+      <label>Second side's name <input name="fam1" maxlength="24"></label>
+      <div class="row">
+        <button class="btn primary" value="save">Save</button>
+        <button class="btn ghost" value="cancel">Cancel</button>
+      </div>
+      <hr style="border:0;border-top:1px solid var(--line);margin:1.2rem 0">
+      <div class="row">
+        <button type="button" class="btn small" data-act="lobby">Show join screen</button>
+        <a class="btn small" href="/keepsake" target="_blank">Story keepsake ↗</a>
+        <button type="button" class="btn small danger" data-act="reset">New game</button>
+      </div>
+    </form>
+  </dialog>
+
+<script src="/web/common.js"></script>
+<script>
+const KEY = new URLSearchParams(location.search).get('key') || '';
+const { act, esc, fmt, remaining, chime, toast, cardHTML, miniCardHTML } = TellMeMore;
+const $ = (s) => document.querySelector(s);
+let S = null, stageKey = '', sideKey = '', lastFlip = '', chimed = '', lastReact = null;
+
+const hostAct = (a, extra = {}) => act(a, { key: KEY, ...extra }).catch((e) => toast(e.message));
+const P = (id) => S && S.players.find((p) => p.id === id);
+const famName = (i) => S.settings.families[i];
+
+TellMeMore.connect((s) => {
+  if (lastReact === null) lastReact = Math.max(0, ...s.reactions.map((r) => r.n));
+  S = s;
+  render();
+});
+act('check_host', { key: KEY }).then((r) => { if (!r.ok) $('#keywarn').hidden = false; }).catch(() => {});
+
+function render() {
+  document.querySelectorAll('[data-level]').forEach((b) => b.classList.toggle('on', +b.dataset.level === S.settings.max_level));
+  const n = S.players.length;
+  $('#count').textContent = `${n} ${n === 1 ? 'person' : 'people'} · ${S.stories} ${S.stories === 1 ? 'story' : 'stories'}`;
+
+  const t = P(S.teller);
+  const k1 = JSON.stringify([S.phase, S.teller, S.prompt, S.timer && [S.timer.ends_at, S.timer.paused_left, S.timer.total],
+    S.asker, S.queue.map((id) => [id, P(id)?.name]), S.settings, t && [t.name, t.swap_used],
+    S.phase === 'lobby' ? S.players.map((p) => [p.name, p.family]) : 0, S.join_url, S.stories]);
+  if (k1 !== stageKey) { stageKey = k1; renderStage(); }
+
+  const k2 = JSON.stringify([S.players, S.phase, S.teller, S.settings.families, S.asker]);
+  if (k2 !== sideKey) { sideKey = k2; renderSide(); }
+
+  spawnReactions();
+  tick();
+}
+
+function ringHTML() {
+  return `<div class="ring-wrap" id="ring">
+    <svg class="ring" viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52"/><circle class="bar" id="ringbar" cx="60" cy="60" r="52" pathLength="100"/></svg>
+    <div class="ring-center"><div class="ring-time" id="tval"></div><div class="ring-note" id="tnote"></div></div></div>`;
+}
+
+function renderStage() {
+  const t = P(S.teller);
+  const f = t ? t.family : 0;
+  let h = '';
+
+  if (S.phase === 'lobby') {
+    const people = S.players.map((p) => `<span class="chip fam-${p.family}">${esc(p.name)}</span>`).join('')
+      || '<span class="hint">Waiting for people to join…</span>';
+    h = `<div class="lobby">
+      <div class="brand-big">Tell Me <span class="kanji">More</span></div>
+      <p class="lede">Draw a card. Tell a short, true story. Then take questions.</p>
+      <div class="join-box"><div id="qr" class="qr"></div>
+        <div><div class="eyebrow">Join on your phone</div>
+        <div class="join-url">${esc(S.join_url.replace(/^http:\/\//, ''))}</div>
+        <div class="hint">Same Wi-Fi as this tablet.<br>No phone? The host can add you →</div></div></div>
+      <div class="chips">${people}</div>
+      <button class="btn primary big" data-act="start" ${S.players.length ? '' : 'disabled'}>${S.stories ? 'Back to the stories →' : 'Start the stories →'}</button>
+    </div>`;
+  } else if (S.phase === 'ready') {
+    h = `<div class="turn fam-${f}">
+      <div class="eyebrow">Story ${S.story_no} · up next</div>
+      <div class="teller-name">${esc(t.name)}</div>
+      <span class="chip">${esc(famName(f))}</span>
+      <button class="card back" data-act="draw" aria-label="Draw a card"><span class="seal">?</span><span class="tap">Tap to draw</span></button>
+      <div class="row">
+        <button class="btn ghost" data-act="custom">✎ Write a prompt just for tonight</button>
+        <button class="btn ghost" data-act="next_turn">Skip to someone else</button>
+      </div></div>`;
+  } else if (S.phase === 'card') {
+    const flip = S.prompt.text !== lastFlip;
+    lastFlip = S.prompt.text;
+    h = `<div class="turn fam-${f}">
+      <div class="row"><span class="chip">${esc(t.name)}</span><span class="hint">drew…</span></div>
+      ${cardHTML(S.prompt, flip)}
+      <div class="row">
+        <button class="btn primary big" data-act="start_story">Start the story · ${fmt(S.settings.story_secs * 1000)}</button>
+        <button class="btn" data-act="swap">${t.swap_used ? 'Swap again' : 'Swap card · 1 free'}</button>
+      </div></div>`;
+  } else if (S.phase === 'telling') {
+    const paused = S.timer.ends_at == null;
+    h = `<div class="telling fam-${f}">
+      ${miniCardHTML(S.prompt)}
+      <div class="teller-name small">${esc(t.name)}</div>
+      ${ringHTML()}
+      <div class="row">
+        <button class="btn" data-act="${paused ? 'resume' : 'pause'}">${paused ? '▶ Resume' : '❚❚ Pause'}</button>
+        <button class="btn" data-act="add_time">+30 sec</button>
+        <button class="btn primary" data-act="end_story">Finish → questions</button>
+      </div>
+      ${S.queue.length ? `<p class="hint">✋ ${S.queue.length} question${S.queue.length > 1 ? 's' : ''} waiting</p>` : ''}
+    </div>`;
+  } else if (S.phase === 'questions') {
+    const asker = P(S.asker);
+    const q = S.queue.map((id) => {
+      const p = P(id);
+      return `<li><span class="chip fam-${p.family}">${esc(p.name)}</span>
+        <span class="grow badge">${p.family !== f ? 'other side · goes first' : ''}</span>
+        <button class="btn small primary" data-act="call_on" data-target="${id}">Call on</button></li>`;
+    }).join('');
+    h = `<div class="questions fam-${f}">
+      <div class="eyebrow">Questions for</div>
+      <div class="teller-name">${esc(t.name)}</div>
+      ${miniCardHTML(S.prompt)}
+      ${asker ? `<div class="asking">🎤 <b>${esc(asker.name)}</b> is asking <button class="btn small" data-act="done_asking">Done</button></div>` : ''}
+      ${q ? `<ol class="queue">${q}</ol>` : (asker ? '' : '<p class="hint">Raise a hand on your phone ✋ — or call on anyone from the list.</p>')}
+      <div class="qtime"><span id="tval"></span> <span id="tnote" class="hint"></span>
+        <button class="btn small ghost" data-act="add_time">+30s</button></div>
+      <button class="btn primary big" data-act="next_turn">Next storyteller →</button>
+    </div>`;
+  }
+  $('#stage').innerHTML = h;
+  if (S.phase === 'lobby') drawQR();
+}
+
+function drawQR() {
+  const el = document.getElementById('qr');
+  if (!el || !S) return;
+  if (!window.qrcode) { el.hidden = true; return; }
+  const q = qrcode(0, 'M');
+  q.addData(S.join_url);
+  q.make();
+  el.hidden = false;
+  el.innerHTML = q.createImgTag(6, 0);
+}
+
+function renderSide() {
+  $('#people').innerHTML = [0, 1].map((f) => {
+    const rows = S.players.filter((p) => p.family === f).map((p) => {
+      const isT = p.id === S.teller;
+      let btn = '';
+      if (['lobby', 'ready', 'card'].includes(S.phase) && !isT) {
+        btn = `<button class="btn small" data-act="pick_teller" data-target="${p.id}">${S.phase === 'lobby' ? 'Go first' : 'Their turn'}</button>`;
+      } else if (S.phase === 'questions' && !isT && p.id !== S.asker) {
+        btn = `<button class="btn small" data-act="call_on" data-target="${p.id}">Call on</button>`;
+      }
+      return `<li class="${isT ? 'is-teller' : ''}">
+        <span class="pname">${esc(p.name)}</span>
+        <span class="meta">${isT && S.phase !== 'lobby' ? '<span class="tag">telling</span>' : ''}${p.id === S.asker ? '<span class="tag">asking</span>' : ''}${p.hand ? '✋' : ''}${p.device ? '' : '<span title="No phone — the host taps for them">📵</span>'}<span class="told" title="Stories told">${'●'.repeat(p.told)}</span></span>
+        ${btn}<button class="x" data-act="remove_player" data-target="${p.id}" aria-label="Remove ${esc(p.name)}">×</button></li>`;
+    }).join('');
+    return `<section class="fam fam-${f}"><h3><span class="dot"></span>${esc(famName(f))}</h3><ul>${rows || '<li class="empty">No one yet</li>'}</ul></section>`;
+  }).join('');
+  const sel = $('#addfam');
+  const v = sel.value;
+  sel.innerHTML = [0, 1].map((f) => `<option value="${f}">${esc(famName(f))}</option>`).join('');
+  sel.value = v || '0';
+}
+
+function tick() {
+  if (!S || !S.timer || !['telling', 'questions'].includes(S.phase)) return;
+  const rem = remaining(S.timer);
+  const over = rem <= 0;
+  const near = !over && rem <= 30000;
+  const paused = S.timer.ends_at == null;
+  const tv = $('#tval'); if (tv) tv.textContent = fmt(rem);
+  const bar = $('#ringbar'); if (bar) bar.style.strokeDashoffset = String(100 - (100 * rem) / S.timer.total);
+  const ring = $('#ring');
+  if (ring) { ring.classList.toggle('near', near); ring.classList.toggle('over', over); }
+  const note = $('#tnote');
+  if (note) {
+    if (S.phase === 'telling') note.textContent = paused ? 'paused' : over ? 'time to wrap up 🌙' : near ? 'start bringing it home' : '';
+    else note.textContent = over ? 'left — time for one last question' : 'left for questions';
+  }
+  const key = `${S.story_no}-${S.phase}`;
+  if (over && !paused && chimed !== key) { chimed = key; chime(S.phase === 'questions'); }
+}
+setInterval(tick, 250);
+
+function spawnReactions() {
+  for (const r of S.reactions) {
+    if (r.n <= lastReact) continue;
+    lastReact = r.n;
+    const el = document.createElement('div');
+    el.className = `float fam-${r.family}`;
+    el.style.left = `${8 + Math.random() * 80}%`;
+    el.innerHTML = `<span class="e">${esc(r.e)}</span><span class="who">${esc(r.name)}</span>`;
+    $('#floats').appendChild(el);
+    setTimeout(() => el.remove(), 3600);
+  }
+}
+
+document.addEventListener('click', (e) => {
+  const b = e.target.closest('[data-act]');
+  if (!b) return;
+  const a = b.dataset.act;
+  const target = b.dataset.target;
+  switch (a) {
+    case 'level': return hostAct('settings', { max_level: +b.dataset.level });
+    case 'open_settings': return openSettings();
+    case 'custom': {
+      const text = window.prompt('A prompt just for tonight:');
+      if (text && text.trim()) hostAct('custom_prompt', { text });
+      return;
+    }
+    case 'remove_player':
+      if (confirm(`Remove ${P(target)?.name} from the game?`)) hostAct(a, { target });
+      return;
+    case 'reset':
+      if (confirm('Start a new game? Everyone stays, but turns start over.')) { hostAct(a); $('#settings').close(); }
+      return;
+    case 'lobby':
+      $('#settings').close();
+      return hostAct(a);
+    default:
+      return hostAct(a, target ? { target } : {});
+  }
+});
+
+$('#addform').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const name = $('#addname').value.trim();
+  if (!name) return;
+  hostAct('add_player', { name, family: $('#addfam').value }).then(() => { $('#addname').value = ''; });
+});
+
+function openSettings() {
+  const f = $('#setform');
+  f.story_secs.value = String(S.settings.story_secs);
+  f.question_secs.value = String(S.settings.question_secs);
+  f.fam0.value = S.settings.families[0];
+  f.fam1.value = S.settings.families[1];
+  $('#settings').returnValue = '';
+  $('#settings').showModal();
+}
+$('#settings').addEventListener('close', () => {
+  if ($('#settings').returnValue !== 'save') return;
+  const f = $('#setform');
+  hostAct('settings', {
+    story_secs: +f.story_secs.value,
+    question_secs: +f.question_secs.value,
+    families: [f.fam0.value, f.fam1.value],
+  });
+});
+</script>
+<script async src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js" onload="drawQR()"></script>
+</body>
+</html>
