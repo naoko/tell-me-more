@@ -13,8 +13,10 @@ No installs: Python 3.8+ standard library only.
 
 ```bash
 cd tell-me-more
-python3 server.py
+make run            # or: python3 server.py
 ```
+
+`make run` uses [uv](https://docs.astral.sh/uv/) if it's installed (pinned Python 3.12) and plain `python3` otherwise. There are no dependencies, so no virtualenv is needed.
 
 It prints three addresses:
 
@@ -29,7 +31,7 @@ Keepsake:        http://192.168.1.20:8765/keepsake
 3. Guests scan the QR code on the tablet (or type the address) and pick their side.
 4. For anyone who'd rather not use a phone, use "Add someone without a phone" on the tablet; the host taps for them.
 
-The host key changes each run. Use `--host-key something` to keep it fixed, or `--port 9000` to change the port.
+The host key changes each run. To keep the host link the same so you can bookmark it on the tablet, use `make run KEY=something` (or `--host-key something`). Use `PORT=9000` (or `--port 9000`) to change the port.
 
 ## How a turn works
 
