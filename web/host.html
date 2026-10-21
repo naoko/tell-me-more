@@ -56,8 +56,10 @@
           <option value="300">5 minutes</option><option value="420">7 minutes</option>
         </select>
       </label>
-      <label>First side's name <input name="fam0" maxlength="24"></label>
-      <label>Second side's name <input name="fam1" maxlength="24"></label>
+      <div class="lbl-group">Families <span class="opt">optional</span></div>
+      <p class="hint small-hint">With two or more, turns rotate between families and other families get to ask questions first.</p>
+      <div id="famlist" class="famlist"></div>
+      <button type="button" class="btn small" id="addgroup">+ Add a group</button>
       <div class="row">
         <button class="btn primary" value="save">Save</button>
         <button class="btn ghost" value="cancel">Cancel</button>
@@ -135,7 +137,7 @@ function renderStage() {
     h = `<div class="turn fam-${f}">
       <div class="eyebrow">Story ${S.story_no} · up next</div>
       <div class="teller-name">${esc(t.name)}</div>
-      <span class="chip">${esc(famName(f))}</span>
+      ${S.settings.families.length > 1 ? `<span class="chip">${esc(famName(f))}</span>` : ''}
       <button class="card back" data-act="draw" aria-label="Draw a card"><span class="seal">?</span><span class="tap">Tap to draw</span></button>
       <div class="row">
         <button class="btn ghost" data-act="custom">✎ Write a prompt just for tonight</button>
@@ -169,7 +171,7 @@ function renderStage() {
     const q = S.queue.map((id) => {
       const p = P(id);
       return `<li><span class="chip fam-${p.family}">${esc(p.name)}</span>
-        <span class="grow badge">${p.family !== f ? 'other side · goes first' : ''}</span>
+        <span class="grow badge">${p.family !== f ? 'another family · goes first' : ''}</span>
         <button class="btn small primary" data-act="call_on" data-target="${id}">Call on</button></li>`;
     }).join('');
     h = `<div class="questions fam-${f}">
@@ -199,7 +201,8 @@ function drawQR() {
 }
 
 function renderSide() {
-  $('#people').innerHTML = [0, 1].map((f) => {
+  const grouped = S.settings.families.length > 1;
+  $('#people').innerHTML = S.settings.families.map((_, f) => {
     const rows = S.players.filter((p) => p.family === f).map((p) => {
       const isT = p.id === S.teller;
       let btn = '';
@@ -208,17 +211,23 @@ function renderSide() {
       } else if (S.phase === 'questions' && !isT && p.id !== S.asker) {
         btn = `<button class="btn small" data-act="call_on" data-target="${p.id}">Call on</button>`;
       }
+      const move = grouped
+        ? `<button class="movedot fam-${p.family}" data-act="move" data-target="${p.id}" title="Move to the next family" aria-label="Move ${esc(p.name)} to the next family"></button>`
+        : '';
+      const picking = grouped && !p.family_set && p.device ? '<span class="tag soft">choosing…</span>' : '';
       return `<li class="${isT ? 'is-teller' : ''}">
-        <span class="pname">${esc(p.name)}</span>
+        ${move}<span class="pname">${esc(p.name)}</span>${picking}
         <span class="meta">${isT && S.phase !== 'lobby' ? '<span class="tag">telling</span>' : ''}${p.id === S.asker ? '<span class="tag">asking</span>' : ''}${p.hand ? '✋' : ''}${p.device ? '' : '<span title="No phone — the host taps for them">📵</span>'}<span class="told" title="Stories told">${'●'.repeat(p.told)}</span></span>
         ${btn}<button class="x" data-act="remove_player" data-target="${p.id}" aria-label="Remove ${esc(p.name)}">×</button></li>`;
     }).join('');
+    if (!grouped) return `<section class="fam"><ul>${rows || '<li class="empty">No one yet</li>'}</ul></section>`;
     return `<section class="fam fam-${f}"><h3><span class="dot"></span>${esc(famName(f))}</h3><ul>${rows || '<li class="empty">No one yet</li>'}</ul></section>`;
   }).join('');
   const sel = $('#addfam');
   const v = sel.value;
-  sel.innerHTML = [0, 1].map((f) => `<option value="${f}">${esc(famName(f))}</option>`).join('');
-  sel.value = v || '0';
+  sel.innerHTML = S.settings.families.map((n, f) => `<option value="${f}">${esc(n)}</option>`).join('');
+  sel.value = v && +v < S.settings.families.length ? v : '0';
+  sel.hidden = !grouped;
 }
 
 function tick() {
@@ -273,6 +282,11 @@ document.addEventListener('click', (e) => {
     case 'reset':
       if (confirm('Start a new game? Everyone stays, but turns start over.')) { hostAct(a); $('#settings').close(); }
       return;
+    case 'move': {
+      const p = P(target);
+      if (p) hostAct('set_family', { target, family: (p.family + 1) % S.settings.families.length });
+      return;
+    }
     case 'lobby':
       $('#settings').close();
       return hostAct(a);
@@ -292,8 +306,7 @@ function openSettings() {
   const f = $('#setform');
   f.story_secs.value = String(S.settings.story_secs);
   f.question_secs.value = String(S.settings.question_secs);
-  f.fam0.value = S.settings.families[0];
-  f.fam1.value = S.settings.families[1];
+  renderFamList(S.settings.families.map((name, i) => ({ name, old: i })));
   $('#settings').returnValue = '';
   $('#settings').showModal();
 }
@@ -303,8 +316,51 @@ $('#settings').addEventListener('close', () => {
   hostAct('settings', {
     story_secs: +f.story_secs.value,
     question_secs: +f.question_secs.value,
-    families: [f.fam0.value, f.fam1.value],
+    ...readFamList(),
   });
+});
+
+// ----- groups editor in Settings -----
+const MAX_GROUPS = 6;
+function readFamList() {
+  const rows = [...document.querySelectorAll('#famlist .famrow')];
+  return {
+    families: rows.map((r) => r.querySelector('input').value),
+    slots: rows.map((r) => (r.dataset.old === '' ? null : +r.dataset.old)),
+  };
+}
+function renderFamList(rows) {
+  const counts = {};
+  S.players.forEach((p) => { counts[p.family] = (counts[p.family] || 0) + 1; });
+  $('#famlist').innerHTML = rows.map((r, i) => {
+    const n = r.old === null ? 0 : (counts[r.old] || 0);
+    const canRemove = rows.length > 1 && (n === 0 || rows.length === 2);  // last split can always be merged
+    return `<div class="famrow fam-${i}" data-old="${r.old === null ? '' : r.old}">
+      <span class="dot"></span><input maxlength="24" value="${esc(r.name)}" aria-label="Group name">
+      <span class="hint">${n ? `${n} ${n === 1 ? 'person' : 'people'}` : ''}</span>
+      <button type="button" class="x" data-rmgroup="${i}" ${canRemove ? '' : 'disabled'} title="${canRemove ? 'Remove family' : 'Move people out of this family first'}">×</button></div>`;
+  }).join('');
+  $('#addgroup').disabled = rows.length >= MAX_GROUPS;
+}
+function currentRows() {
+  return [...document.querySelectorAll('#famlist .famrow')].map((r) => ({
+    name: r.querySelector('input').value, old: r.dataset.old === '' ? null : +r.dataset.old,
+  }));
+}
+$('#addgroup').addEventListener('click', () => {
+  const rows = currentRows();
+  if (rows.length === 1 && rows[0].name.trim() === 'Everyone') rows[0].name = 'Family A';
+  rows.push({ name: `Family ${String.fromCharCode(65 + rows.length)}`, old: null });
+  renderFamList(rows);
+  const inputs = document.querySelectorAll('#famlist input');
+  inputs[inputs.length - 1].select();
+});
+$('#famlist').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-rmgroup]');
+  if (!b || b.disabled) return;
+  const rows = currentRows();
+  rows.splice(+b.dataset.rmgroup, 1);
+  renderFamList(rows);
 });
 </script>
 <script async src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js" onload="drawQR()"></script>

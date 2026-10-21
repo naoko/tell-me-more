@@ -22,7 +22,7 @@ const store = {
   set(v) { try { localStorage.setItem('tellmemore_id', v); } catch (_) { /* private mode */ } },
 };
 let myId = store.get();
-let S = null, me = null, view = '', key = '', pickedFamily = null, lastFlip = '', buzzed = '';
+let S = null, me = null, view = '', key = '', pickedFamily = null, lastFlip = '', buzzed = '', repick = false;
 
 const pAct = (a, extra = {}) => act(a, { player_id: myId, ...extra }).catch((e) => toast(e.message));
 const P = (id) => S.players.find((p) => p.id === id);
@@ -31,7 +31,10 @@ TellMeMore.connect((s) => { S = s; render(); });
 
 function render() {
   me = S.players.find((p) => p.id === myId) || null;
-  if (!me) renderJoin(); else renderGame();
+  const grouped = S.settings.families.length > 1;
+  if (!me) renderJoin();
+  else if (grouped && (!me.family_set || repick)) renderPick();
+  else renderGame();
   tick();
 }
 
@@ -45,7 +48,7 @@ function renderJoin() {
       <form id="joinform">
         <label class="lbl" for="name">Your name</label>
         <input id="name" autocomplete="given-name" maxlength="24" placeholder="First name" enterkeyhint="done">
-        <div class="lbl">Which side are you on?</div>
+        <div class="lbl" id="famlabel">Which family are you with?</div>
         <div class="famchoice" id="famchoice"></div>
         <button class="btn primary big" type="submit">Join</button>
       </form></div>`;
@@ -53,7 +56,7 @@ function renderJoin() {
       e.preventDefault();
       const name = $('#name').value.trim();
       if (!name) return toast('Add your name first');
-      if (pickedFamily === null) return toast('Pick a side first');
+      if (pickedFamily === null) return toast('Pick your family first');
       try {
         const r = await act('join', { name, family: pickedFamily });
         myId = r.player_id;
@@ -62,8 +65,25 @@ function renderJoin() {
       } catch (err) { toast(err.message); }
     });
   }
-  $('#famchoice').innerHTML = [0, 1].map((f) =>
+  const fams = S.settings.families;
+  if (fams.length === 1) pickedFamily = 0;
+  if (pickedFamily !== null && pickedFamily >= fams.length) pickedFamily = null;
+  $('#famlabel').hidden = $('#famchoice').hidden = fams.length === 1;
+  $('#famchoice').innerHTML = fams.map((_, f) =>
     `<button type="button" class="famopt fam-${f}${pickedFamily === f ? ' on' : ''}" data-fam="${f}">${esc(S.settings.families[f])}</button>`).join('');
+}
+
+function renderPick() {
+  const k = JSON.stringify(['pick', S.settings.families, me.family, me.family_set]);
+  if (view === 'pick' && k === key) return;
+  view = 'pick';
+  key = k;
+  $('#app').innerHTML = `<div class="join">
+    <h2>Which family are you with?</h2>
+    <p class="hint">Hi ${esc(me.name)}! The host added families for tonight.</p>
+    <div class="famchoice">${S.settings.families.map((n, f) =>
+      `<button type="button" class="famopt fam-${f}${me.family_set && me.family === f ? ' on' : ''}" data-setfam="${f}">${esc(n)}</button>`).join('')}</div>
+  </div>`;
 }
 
 function handButton() {
@@ -150,7 +170,7 @@ function renderGame() {
   }
 
   $('#app').innerHTML = `<header class="me fam-${me.family}"><span class="chip">${esc(me.name)}</span>
-      <span class="hint">${esc(S.settings.families[me.family])}</span></header>
+      ${S.settings.families.length > 1 ? `<button class="linkish" data-repick="1">${esc(S.settings.families[me.family])} ▾</button>` : ''}</header>
     <main class="pmain">${body}</main>
     ${S.phase !== 'lobby' ? `<nav class="reacts">${REACTIONS.map((e) => `<button data-react="${e}" aria-label="React ${e}">${e}</button>`).join('')}</nav>` : ''}`;
 }
@@ -181,6 +201,14 @@ setInterval(tick, 250);
 document.addEventListener('click', (e) => {
   const fam = e.target.closest('[data-fam]');
   if (fam) { pickedFamily = +fam.dataset.fam; renderJoin(); return; }
+
+  const sf = e.target.closest('[data-setfam]');
+  if (sf) {
+    repick = false;
+    pAct('set_family', { family: +sf.dataset.setfam });
+    return;
+  }
+  if (e.target.closest('[data-repick]')) { repick = true; render(); return; }
 
   const r = e.target.closest('[data-react]');
   if (r) {

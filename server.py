@@ -30,6 +30,7 @@ STORIES_DIR = os.path.join(ROOT, "stories")
 
 LEVELS = ["light", "warm", "deeper"]
 REACTIONS = ["❤️", "😂", "😮", "👏", "🥲"]
+MAX_GROUPS = 6
 MIME = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -73,7 +74,7 @@ class Game:
             "story_secs": 150,
             "question_secs": 180,
             "max_level": 1,  # 1 = light, 2 = light + warm, 3 = everything
-            "families": ["Our family", "Their family"],
+            "families": ["Everyone"],  # one group = no families; add up to MAX_GROUPS in Settings
         }
         self.players = {}  # id -> player dict
         self.order = []  # join order
@@ -99,7 +100,8 @@ class Game:
         self.asker = None
         self.current = None
         self.saved_phase = None
-        self.last_family = 1  # so the first storyteller comes from the first family
+        self.turn_no = 0
+        self.group_last_turn = {}  # group index -> turn number it last told a story
 
     def _bump(self):
         self.version += 1
@@ -116,25 +118,35 @@ class Game:
     def _add(self, name, family, device):
         name = str(name or "").strip()[:24]
         self._need(name, "Please enter a name")
-        family = 1 if str(family) == "1" else 0
+        try:
+            family = int(family)
+        except (TypeError, ValueError):
+            family = 0
+        if not 0 <= family < len(self.settings["families"]):
+            family = 0
         pid = secrets.token_urlsafe(8)
         self.players[pid] = {
             "id": pid, "name": name, "family": family, "told": 0, "asked": 0,
             "swap_used": False, "hand": None, "device": device,
+            # False when they joined before families existed; their phone will ask
+            "family_set": len(self.settings["families"]) > 1,
         }
         self.order.append(pid)
         return pid
 
     def _pick_next(self):
-        """Everyone tells once before anyone tells twice; alternate sides when possible."""
+        """Everyone tells once before anyone tells twice; among those, the group
+        that told least recently goes next, so turns rotate across groups."""
         if not self.players:
             return None
         low = min(p["told"] for p in self.players.values())
         cands = [self.players[i] for i in self.order if self.players[i]["told"] == low and i != self.teller]
         if not cands:
             cands = [self.players[i] for i in self.order if i != self.teller] or [self.players[i] for i in self.order]
-        other_side = [c for c in cands if c["family"] != self.last_family]
-        return (other_side or cands)[0]["id"]
+        def recency(p):
+            return self.group_last_turn.get(p["family"], -1)
+        best = min(recency(c) for c in cands)
+        return next(c for c in cands if recency(c) == best)["id"]
 
     def _begin_turn(self, pid):
         self.teller = pid
@@ -185,7 +197,7 @@ class Game:
         teller = self.players.get(self.teller)
         tf = teller["family"] if teller else -1
         queue = [p for p in order if p["hand"] and p["id"] != self.teller]
-        # The other side gets first pick at questions — that's where the connection happens.
+        # Other groups get first pick at questions — that's where the connection happens.
         queue.sort(key=lambda p: (p["family"] == tf, p["hand"]))
         return {
             "v": self.version,
@@ -253,8 +265,27 @@ class Game:
         if "max_level" in d:
             s["max_level"] = max(1, min(3, int(d["max_level"])))
         if "families" in d:
-            f = list(d["families"])[:2]
-            s["families"] = [str(f[i]).strip()[:24] or s["families"][i] for i in range(2)]
+            names = [str(n).strip()[:24] for n in list(d["families"])[:MAX_GROUPS]]
+            self._need(names, "Keep at least one group")
+            names = [n or f"Group {i + 1}" for i, n in enumerate(names)]
+            # slots[new_index] = old index (or None for a new group); defaults to same positions
+            slots = list(d.get("slots") or range(len(names)))[:len(names)]
+            remap = {}
+            for new_i, old_i in enumerate(slots):
+                if isinstance(old_i, int) and 0 <= old_i < len(s["families"]) and old_i not in remap:
+                    remap[old_i] = new_i
+            if len(names) == 1:  # turning families off merges everyone into one group
+                remap = {i: 0 for i in range(len(s["families"]))}
+            for p in self.players.values():
+                self._need(p["family"] in remap,
+                           f"Move or remove the people in {s['families'][p['family']]} before removing it")
+            for p in self.players.values():
+                p["family"] = remap[p["family"]]
+            self.group_last_turn = {remap[k]: v for k, v in self.group_last_turn.items() if k in remap}
+            if len(names) == 1:  # back to no families: ask again if families come back
+                for p in self.players.values():
+                    p["family_set"] = False
+            s["families"] = names
 
     def _a_start(self, d, host, me):
         self._need(host)
@@ -319,7 +350,7 @@ class Game:
         t = self.players[self.teller]
         self.current = {
             "teller": t["name"],
-            "family": self.settings["families"][t["family"]],
+            "family": self.settings["families"][t["family"]] if len(self.settings["families"]) > 1 else None,
             "family_index": t["family"],
             "prompt": self.prompt["text"],
             "level": self.prompt["level"],
@@ -360,6 +391,17 @@ class Game:
         self.phase = "questions"
         self.asker = None
         self._start_timer(self.settings["question_secs"])
+
+    def _a_set_family(self, d, host, me):
+        """Host moves anyone; a guest can set their own family."""
+        pid = str(d.get("target") or (me["id"] if me else ""))
+        self._need(host or (me is not None and me["id"] == pid), "Only the host can move other people")
+        self._need(pid in self.players, "Unknown person")
+        fam = int(d.get("family"))
+        self._need(0 <= fam < len(self.settings["families"]), "Unknown family")
+        p = self.players[pid]
+        p["family"] = fam
+        p["family_set"] = True
 
     def _a_raise_hand(self, d, host, me):
         self._need(me, "Join the game first")
@@ -403,7 +445,8 @@ class Game:
         for p in self.players.values():
             p["hand"] = None
         if self.teller in self.players:
-            self.last_family = self.players[self.teller]["family"]
+            self.turn_no += 1
+            self.group_last_turn[self.players[self.teller]["family"]] = self.turn_no
         self._begin_turn(self._pick_next())
 
     def _a_react(self, d, host, me):
@@ -424,8 +467,9 @@ class Game:
 def keepsake_html(families, stories):
     items = []
     for s in stories:
-        meta = [f'<span class="chip fam-{s["family_index"]}">{escape(s["teller"])}</span>',
-                escape(s["family"])]
+        meta = [f'<span class="chip fam-{s["family_index"]}">{escape(s["teller"])}</span>']
+        if s.get("family"):
+            meta.append(escape(s["family"]))
         if s.get("told_secs", 0) >= 5:
             meta.append(fmt_secs(s["told_secs"]))
         if s["questions"]:
@@ -439,18 +483,19 @@ def keepsake_html(families, stories):
 <meta name="viewport" content="width=device-width, initial-scale=1"><title>Our stories · Tell Me More</title>
 <link rel="stylesheet" href="/web/app.css"></head><body class="keepsake">
 <header><div class="brand-big">Our stories</div>
-<p class="hint">{escape(families[0])} &amp; {escape(families[1])} · {time.strftime("%B %-d, %Y")}</p>
+<p class="hint">{escape(" · ".join(families)) + " — " if len(families) > 1 else ""}{time.strftime("%B %-d, %Y")}</p>
 <p><a class="btn" href="/keepsake.md">Download as text</a></p></header>
 <ol class="klist">{body}</ol></body></html>"""
 
 
 def keepsake_md(families, stories):
-    lines = [f"# Tell Me More — our stories", f"_{families[0]} & {families[1]} · {time.strftime('%B %-d, %Y')}_", ""]
+    lines = [f"# Tell Me More — our stories", f"_{', '.join(families) + ' · ' if len(families) > 1 else ''}{time.strftime('%B %-d, %Y')}_", ""]
     for s in stories:
         lines.append(f"## {s['n']}. {s['prompt']}")
         q = f" · questions from {', '.join(s['questions'])}" if s["questions"] else ""
         dur = f" · {fmt_secs(s['told_secs'])}" if s.get("told_secs", 0) >= 5 else ""
-        lines.append(f"**{s['teller']}** ({s['family']}){dur}{q}")
+        fam = f" ({s['family']})" if s.get("family") else ""
+        lines.append(f"**{s['teller']}**{fam}{dur}{q}")
         lines.append("")
     return "\n".join(lines)
 
