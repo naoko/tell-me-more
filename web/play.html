@@ -9,11 +9,12 @@
 </head>
 <body class="play">
   <div id="app"></div>
+  <div id="floats"></div>
   <div id="conn">Reconnecting…</div>
 
 <script src="/web/common.js"></script>
 <script>
-const { act, esc, fmt, remaining, toast, cardHTML, miniCardHTML } = TellMeMore;
+const { act, esc, fmt, remaining, toast, cardHTML, miniCardHTML, handCardHTML } = TellMeMore;
 const REACTIONS = ['❤️', '😂', '😮', '👏', '🥲'];
 const $ = (s) => document.querySelector(s);
 
@@ -22,15 +23,18 @@ const store = {
   set(v) { try { localStorage.setItem('tellmemore_id', v); } catch (_) { /* private mode */ } },
 };
 let myId = store.get();
-let S = null, me = null, view = '', key = '', pickedFamily = null, lastFlip = '', buzzed = '', repick = false;
+let S = null, me = null, view = '', key = '', pickedFamily = null, lastFlip = '', buzzed = '', repick = false, showCards = false;
 
 const pAct = (a, extra = {}) => act(a, { player_id: myId, ...extra }).catch((e) => toast(e.message));
 const P = (id) => S.players.find((p) => p.id === id);
+const showReactions = TellMeMore.reactionLayer(document.getElementById('floats'));
 
-TellMeMore.connect((s) => { S = s; render(); });
+const conn = TellMeMore.connect((s) => { S = s; render(); },
+  () => (myId ? `?player_id=${encodeURIComponent(myId)}` : ''));
 
 function render() {
   me = S.players.find((p) => p.id === myId) || null;
+  showReactions(S);
   const grouped = S.settings.families.length > 1;
   if (!me) renderJoin();
   else if (grouped && (!me.family_set || repick)) renderPick();
@@ -61,7 +65,7 @@ function renderJoin() {
         const r = await act('join', { name, family: pickedFamily });
         myId = r.player_id;
         store.set(myId);
-        render();
+        conn.reopen();  // reconnect as this player to receive your cards
       } catch (err) { toast(err.message); }
     });
   }
@@ -86,6 +90,19 @@ function renderPick() {
   </div>`;
 }
 
+// Your private cards, to think about while you wait.
+function myCards(open) {
+  const cards = (S.my_cards || []).map((c) => handCardHTML(c)).join('');
+  if (!cards) return '';
+  if (!open) {
+    return `<button class="btn ghost peek" data-togglecards="1">🂠 Peek at your cards</button>`;
+  }
+  return `<section class="mycards"><div class="eyebrow">Your cards</div>
+    <p class="hint">Think about which one you'd tell. You'll pick one on your turn.</p>
+    <div class="hand-col">${cards}</div>
+    ${S.phase === 'lobby' ? '' : '<button class="btn ghost small" data-togglecards="1">Hide</button>'}</section>`;
+}
+
 function handButton() {
   if (me.hand) {
     const pos = S.queue.indexOf(me.id) + 1;
@@ -104,7 +121,7 @@ function renderGame() {
   const t = P(S.teller);
   const mine = !!t && t.id === me.id;
   const k = JSON.stringify([S.phase, S.teller, S.prompt, S.timer && [S.timer.ends_at, S.timer.paused_left, S.timer.total],
-    S.asker, S.queue, me, t && t.name, S.settings.families, S.phase === 'lobby' ? S.players.length : 0]);
+    S.asker, S.queue, me, t && t.name, S.settings.families, S.phase === 'lobby' ? S.players.length : 0, S.my_cards, showCards]);
   if (view === 'game' && k === key) return;
   view = 'game';
   key = k;
@@ -114,20 +131,23 @@ function renderGame() {
   if (S.phase === 'lobby') {
     body = `<div class="big-emoji">🍵</div><h2>You're in!</h2>
       <p class="hint">${S.players.length} ${S.players.length === 1 ? 'person' : 'people'} here. Waiting for the host to start.</p>
+      ${myCards(true)}
       <div class="howto"><b>How it works</b><ol>
-        <li>When it's your turn, draw a card and tell a short, true story.</li>
-        <li>Don't like your card? You get one free swap.</li>
-        <li>Afterwards, everyone can ask you questions. ✋</li></ol></div>`;
+        <li>On your turn, pick one of your cards (or 🎲 for a surprise) and tell a short, true story.</li>
+        <li>Afterwards, everyone can ask you questions. ✋</li>
+        <li>You get a fresh card after each story.</li></ol></div>`;
   } else if (mine) {
     if (S.phase === 'ready') {
       body = `<h2>You're up! ✨</h2>
-        <button class="card back" data-act="draw"><span class="seal">?</span><span class="tap">Tap to draw your card</span></button>`;
+        <p class="hint">Tap the story you'd like to tell.</p>
+        <div class="hand-col">${(S.my_cards || []).map((c, i) => handCardHTML(c, i)).join('')}</div>
+        <div class="stack"><button class="btn" data-act="draw">🎲 Surprise me</button></div>`;
     } else if (S.phase === 'card') {
       const flip = S.prompt.text !== lastFlip; lastFlip = S.prompt.text;
       body = `<div class="eyebrow">Your card</div>${cardHTML(S.prompt, flip)}
         <p class="hint">Take a breath. ${fmt(S.settings.story_secs * 1000)} on the clock — finishing early is fine.</p>
         <div class="stack"><button class="btn primary big" data-act="start_story">Start my story</button>
-        ${me.swap_used ? '<p class="hint">Free swap used — the host can still swap for you.</p>' : '<button class="btn" data-act="swap">Swap card (1 free)</button>'}</div>`;
+        <button class="btn" data-act="unplay">Pick a different card</button></div>`;
     } else if (S.phase === 'telling') {
       body = `<div class="eyebrow">You're telling</div>${miniCardHTML(S.prompt)}${timerBlock()}
         <div class="stack"><button class="btn primary big" data-act="end_story">I'm done → questions</button></div>`;
@@ -146,15 +166,17 @@ function renderGame() {
     }
   } else {
     if (S.phase === 'ready') {
-      body = `<div class="eyebrow">Up next</div><div class="teller-name fam-${f}">${esc(t.name)}</div><p class="hint">is drawing a card…</p>`;
+      body = `<div class="eyebrow">Up next</div><div class="teller-name fam-${f}">${esc(t.name)}</div><p class="hint">is choosing a card…</p>
+        ${myCards(showCards)}`;
     } else if (S.phase === 'card') {
       const flip = S.prompt.text !== lastFlip; lastFlip = S.prompt.text;
-      body = `<div class="eyebrow">${esc(t.name)} drew</div>${cardHTML(S.prompt, flip)}`;
+      body = `<div class="eyebrow">${esc(t.name)} chose</div>${cardHTML(S.prompt, flip)}`;
     } else if (S.phase === 'telling') {
       body = `<div class="eyebrow fam-${f}">${esc(t.name)} is telling</div>${miniCardHTML(S.prompt)}
         <div class="fam-${f}">${timerBlock()}</div>
         <div class="stack">${handButton()}</div>
-        <p class="hint">Got a question? Raise your hand now — you'll be in line for after the story.</p>`;
+        <p class="hint">Got a question? Raise your hand now — you'll be in line for after the story.</p>
+        ${myCards(showCards)}`;
     } else if (S.phase === 'questions') {
       const asker = P(S.asker);
       if (S.asker === me.id) {
@@ -164,7 +186,8 @@ function renderGame() {
         body = `<div class="eyebrow">Questions for</div><div class="teller-name fam-${f}">${esc(t.name)}</div>
           ${miniCardHTML(S.prompt)}
           ${asker ? `<div class="asking">🎤 <b>${esc(asker.name)}</b> is asking</div>` : ''}
-          <div class="stack">${handButton()}</div>`;
+          <div class="stack">${handButton()}</div>
+          ${myCards(showCards)}`;
       }
     }
   }
@@ -201,6 +224,10 @@ setInterval(tick, 250);
 document.addEventListener('click', (e) => {
   const fam = e.target.closest('[data-fam]');
   if (fam) { pickedFamily = +fam.dataset.fam; renderJoin(); return; }
+
+  const play = e.target.closest('[data-play]');
+  if (play) { pAct('play_card', { index: +play.dataset.play }); return; }
+  if (e.target.closest('[data-togglecards]')) { showCards = !showCards; key = ''; render(); return; }
 
   const sf = e.target.closest('[data-setfam]');
   if (sf) {

@@ -1,6 +1,5 @@
 {
-  "_how_to_edit": "Add, remove or reword prompts in any list. Changes apply on the next card drawn, no restart needed. 'light' is always in play; the host unlocks 'warm' and 'deeper' from the tablet.",
-
+  "_how_to_edit": "Add, remove or reword prompts in any list. Changes apply to the next card dealt, no restart needed. Everyone holds 3 cards, so keep at least ~4 per guest in 'light'. The host unlocks 'warm' and 'deeper' from the tablet.",
   "light": [
     "A time you saw something you'd never seen before",
     "The best meal you've ever had — where were you, and who were you with?",
@@ -23,9 +22,18 @@
     "A time the weather completely changed your plans",
     "A hobby you picked up — and maybe dropped",
     "Something you made with your own hands that you're proud of",
-    "A time you were in the right place at the right time"
+    "A time you were in the right place at the right time",
+    "The best day of your summer this year",
+    "A time something went hilariously wrong in the kitchen",
+    "The first concert or show you ever went to",
+    "A neighbor you'll never forget",
+    "Something you collected as a kid",
+    "A time you got completely the wrong idea about someone",
+    "Your favorite place to be on a Sunday morning",
+    "A time you had to improvise",
+    "The worst haircut you've ever had",
+    "A small adventure close to home"
   ],
-
   "warm": [
     "How you met your partner — the real version",
     "Something your parents did that you now catch yourself doing",
@@ -43,9 +51,13 @@
     "A moment you were proud of your kid (or someone you helped raise)",
     "Something you'd tell your younger self",
     "A place that feels like home, and why",
-    "A dish from your childhood and the person who made it"
+    "A dish from your childhood and the person who made it",
+    "A time a friend showed up for you",
+    "Something you learned from a grandparent",
+    "The best job you ever had, and why",
+    "A moment you felt completely at peace",
+    "A tradition you started yourself"
   ],
-
   "deeper": [
     "The hardest thing that happened this year — and what got you through it",
     "A time you changed your mind about something important",

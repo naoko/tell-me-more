@@ -21,7 +21,7 @@ import threading
 import time
 from html import escape
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT, "web")
@@ -31,6 +31,7 @@ STORIES_DIR = os.path.join(ROOT, "stories")
 LEVELS = ["light", "warm", "deeper"]
 REACTIONS = ["❤️", "😂", "😮", "👏", "🥲"]
 MAX_GROUPS = 6
+HAND_SIZE = 3  # cards each person holds privately to think about before their turn
 MIME = {
     ".html": "text/html; charset=utf-8",
     ".css": "text/css; charset=utf-8",
@@ -95,7 +96,9 @@ class Game:
         self.phase = "lobby"  # lobby | ready | card | telling | questions
         self.teller = None
         self.prompt = None
-        self.used = set()
+        self.prompt_from = None  # "hand" | "deck" | "custom"
+        self.used = set()  # prompts dealt or drawn since the last reshuffle
+        self.cards = {}  # player id -> private hand of prompt cards
         self.timer = None
         self.asker = None
         self.current = None
@@ -127,11 +130,12 @@ class Game:
         pid = secrets.token_urlsafe(8)
         self.players[pid] = {
             "id": pid, "name": name, "family": family, "told": 0, "asked": 0,
-            "swap_used": False, "hand": None, "device": device,
+            "hand": None, "device": device,  # "hand" = raised-hand time, not cards
             # False when they joined before families existed; their phone will ask
             "family_set": len(self.settings["families"]) > 1,
         }
         self.order.append(pid)
+        self._fill(pid)
         return pid
 
     def _pick_next(self):
@@ -156,18 +160,62 @@ class Game:
         self.saved_phase = None
         self.phase = "ready" if pid else "lobby"
 
-    def _draw(self, exclude=None):
+    def _deal_one(self, hand, level=None):
+        """Next card from the deck: one nobody has seen if possible, else one nobody
+        is holding, else anything not already in this hand."""
         prompts = load_prompts()
-        pool = [(text, lvl) for lvl in LEVELS[: self.settings["max_level"]] for text in prompts[lvl]]
-        fresh = [x for x in pool if x[0] not in self.used and x[0] != exclude]
-        if not fresh:  # the deck ran out — reshuffle
-            self.used = set()
-            fresh = [x for x in pool if x[0] != exclude] or pool
-        self._need(fresh, "No prompts found — check prompts.json")
+        levels = [level] if level else LEVELS[: self.settings["max_level"]]
+        pool = [(t, lvl) for lvl in levels for t in prompts[lvl]]
+        mine = {c["text"] for c in hand}
+        held = {c["text"] for h in self.cards.values() for c in h} | mine
+        if self.prompt:
+            held.add(self.prompt["text"])
+        fresh = []
+        for ok in (lambda t: t not in self.used and t not in held,
+                   lambda t: t not in held,
+                   lambda t: t not in mine):
+            fresh = [x for x in pool if ok(x[0])]
+            if fresh:
+                break
+        if not fresh:
+            return None
         text, lvl = random.choice(fresh)
         self.used.add(text)
-        self.prompt = {"text": text, "level": lvl}
-        self.phase = "card"
+        return {"text": text, "level": lvl}
+
+    def _fill(self, pid):
+        hand = self.cards.setdefault(pid, [])
+        while len(hand) < HAND_SIZE:
+            card = self._deal_one(hand)
+            if not card:
+                break
+            hand.append(card)
+
+    def _rebalance_hands(self, old, new):
+        """Depth changed: drop cards that are now too deep, or give everyone
+        one card from the newly unlocked level."""
+        if new < old:
+            allowed = set(LEVELS[:new])
+            for pid, hand in self.cards.items():
+                hand[:] = [c for c in hand if c["level"] in allowed]
+                self._fill(pid)
+        elif new > old:
+            top = LEVELS[new - 1]
+            for hand in self.cards.values():
+                if any(c["level"] == top for c in hand):
+                    continue
+                card = self._deal_one(hand, level=top)
+                if card:
+                    if len(hand) >= HAND_SIZE:
+                        hand.pop(0)
+                    hand.append(card)
+
+    def _return_prompt(self):
+        """Put an un-told card back where it came from."""
+        if self.prompt and self.prompt_from == "hand" and self.teller in self.cards:
+            self.cards[self.teller].append({"text": self.prompt["text"], "level": self.prompt["level"]})
+        self.prompt = None
+        self.prompt_from = None
 
     def _start_timer(self, secs):
         self.timer = {"total": secs * 1000, "ends_at": now_ms() + secs * 1000, "paused_left": None}
@@ -192,7 +240,7 @@ class Game:
 
     # ---------- public view ----------
 
-    def public(self):
+    def public(self, viewer=None, is_host=False):
         order = [self.players[i] for i in self.order if i in self.players]
         teller = self.players.get(self.teller)
         tf = teller["family"] if teller else -1
@@ -215,6 +263,8 @@ class Game:
             "questions_asked": len(self.current["questions"]) if self.current else 0,
             "reactions": self.reactions[-15:],
             "join_url": self.join_url,
+            "my_cards": self.cards.get(viewer, []) if viewer in self.players else [],
+            "teller_cards": self.cards.get(self.teller, []) if (is_host or viewer == self.teller) else [],
         }
 
     # ---------- actions ----------
@@ -246,8 +296,11 @@ class Game:
         if pid not in self.players:
             return
         was_teller = pid == self.teller
+        if was_teller and self.phase == "card":
+            self.prompt, self.prompt_from = None, None
         del self.players[pid]
         self.order.remove(pid)
+        self.cards.pop(pid, None)
         if self.asker == pid:
             self.asker = None
         if was_teller and self.phase != "lobby":
@@ -263,7 +316,9 @@ class Game:
         if "question_secs" in d:
             s["question_secs"] = max(30, min(900, int(d["question_secs"])))
         if "max_level" in d:
+            old = s["max_level"]
             s["max_level"] = max(1, min(3, int(d["max_level"])))
+            self._rebalance_hands(old, s["max_level"])
         if "families" in d:
             names = [str(n).strip()[:24] for n in list(d["families"])[:MAX_GROUPS]]
             self._need(names, "Keep at least one group")
@@ -311,37 +366,57 @@ class Game:
     def _a_reset(self, d, host, me):
         self._need(host)
         for p in self.players.values():
-            p.update(told=0, asked=0, swap_used=False, hand=None)
+            p.update(told=0, asked=0, hand=None)
         self.stories = []
         self._new_session_file()
         self._new_round()
+        for pid in self.order:
+            self._fill(pid)
 
     def _a_pick_teller(self, d, host, me):
         self._need(host)
         pid = str(d.get("target") or "")
         self._need(pid in self.players, "Unknown person")
+        if self.phase == "card":
+            self._return_prompt()
         self.current = None
         self._begin_turn(pid)
 
-    def _a_draw(self, d, host, me):
+    def _a_play_card(self, d, host, me):
+        """The storyteller picks one of their cards."""
         self._need(host or self._is_teller(me), "It's not your turn yet")
-        self._need(self.phase == "ready", "A card is already drawn")
-        self._draw()
+        self._need(self.phase == "ready", "A card is already chosen")
+        hand = self.cards.get(self.teller, [])
+        i = int(d.get("index", -1))
+        self._need(0 <= i < len(hand), "That card isn't in the hand")
+        self.prompt = hand.pop(i)
+        self.prompt_from = "hand"
+        self.phase = "card"
 
-    def _a_swap(self, d, host, me):
+    def _a_draw(self, d, host, me):
+        """Surprise me: a blind card from the deck."""
         self._need(host or self._is_teller(me), "It's not your turn yet")
-        self._need(self.phase == "card", "Nothing to swap yet")
-        t = self.players[self.teller]
-        self._need(host or not t["swap_used"], "You've used your free swap")
-        t["swap_used"] = True
-        self._draw(exclude=self.prompt["text"] if self.prompt else None)
+        self._need(self.phase == "ready", "A card is already chosen")
+        card = self._deal_one(self.cards.get(self.teller, []))
+        self._need(card, "No prompts found — check prompts.json")
+        self.prompt, self.prompt_from = card, "deck"
+        self.phase = "card"
+
+    def _a_unplay(self, d, host, me):
+        """Pick a different card: back to choosing, hand card returned."""
+        self._need(host or self._is_teller(me), "It's not your turn")
+        self._need(self.phase == "card", "Nothing to put back")
+        self._return_prompt()
+        self.phase = "ready"
 
     def _a_custom_prompt(self, d, host, me):
         self._need(host)
         self._need(self.phase in ("ready", "card"), "Finish this story first")
         text = str(d.get("text", "")).strip()[:200]
         self._need(text, "Write a prompt first")
+        self._return_prompt()
         self.prompt = {"text": text, "level": "custom"}
+        self.prompt_from = "custom"
         self.phase = "card"
 
     def _a_start_story(self, d, host, me):
@@ -441,10 +516,14 @@ class Game:
             self.current["n"] = len(self.stories) + 1
             self.stories.append(self.current)
             self._save()
+        elif self.phase == "card":
+            self._return_prompt()
         self.current = None
+        self.prompt, self.prompt_from = None, None
         for p in self.players.values():
             p["hand"] = None
         if self.teller in self.players:
+            self._fill(self.teller)
             self.turn_no += 1
             self.group_last_turn[self.players[self.teller]["family"]] = self.turn_no
         self._begin_turn(self._pick_next())
@@ -536,8 +615,16 @@ class Handler(BaseHTTPRequestHandler):
             data = f.read()
         self._send(200, data, MIME.get(os.path.splitext(path)[1], "application/octet-stream"))
 
+    def _viewer(self):
+        q = parse_qs(urlparse(self.path).query)
+        pid = (q.get("player_id") or [""])[0]
+        key = (q.get("key") or [""])[0].encode()
+        return pid, secrets.compare_digest(key, GAME.host_key.encode())
+
     def _events(self):
-        """Server-Sent Events: push the full state whenever it changes."""
+        """Server-Sent Events: push the state whenever it changes. Each viewer
+        also gets their own private cards (and the host, the storyteller's)."""
+        viewer, is_host = self._viewer()
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream")
         self.send_header("Cache-Control", "no-store")
@@ -552,7 +639,7 @@ class Handler(BaseHTTPRequestHandler):
                     payload = None
                     if GAME.version != last:
                         last = GAME.version
-                        payload = json.dumps(GAME.public(), ensure_ascii=False)
+                        payload = json.dumps(GAME.public(viewer, is_host), ensure_ascii=False)
                 chunk = f"data: {payload}\n\n" if payload else ": ping\n\n"
                 self.wfile.write(chunk.encode("utf-8"))
                 self.wfile.flush()
@@ -568,8 +655,9 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/web/"):
             return self._file(path[len("/web/"):])
         if path == "/api/state":
+            viewer, is_host = self._viewer()
             with GAME.cond:
-                return self._send(200, GAME.public())
+                return self._send(200, GAME.public(viewer, is_host))
         if path == "/api/events":
             return self._events()
         if path in ("/keepsake", "/keepsake.md"):

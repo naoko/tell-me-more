@@ -76,19 +76,19 @@
 <script src="/web/common.js"></script>
 <script>
 const KEY = new URLSearchParams(location.search).get('key') || '';
-const { act, esc, fmt, remaining, chime, toast, cardHTML, miniCardHTML } = TellMeMore;
+const { act, esc, fmt, remaining, chime, toast, cardHTML, miniCardHTML, handCardHTML } = TellMeMore;
 const $ = (s) => document.querySelector(s);
-let S = null, stageKey = '', sideKey = '', lastFlip = '', chimed = '', lastReact = null;
+let S = null, stageKey = '', sideKey = '', lastFlip = '', chimed = '';
+const showReactions = TellMeMore.reactionLayer(document.getElementById('floats'));
 
 const hostAct = (a, extra = {}) => act(a, { key: KEY, ...extra }).catch((e) => toast(e.message));
 const P = (id) => S && S.players.find((p) => p.id === id);
 const famName = (i) => S.settings.families[i];
 
 TellMeMore.connect((s) => {
-  if (lastReact === null) lastReact = Math.max(0, ...s.reactions.map((r) => r.n));
   S = s;
   render();
-});
+}, () => `?key=${encodeURIComponent(KEY)}`);
 act('check_host', { key: KEY }).then((r) => { if (!r.ok) $('#keywarn').hidden = false; }).catch(() => {});
 
 function render() {
@@ -98,14 +98,14 @@ function render() {
 
   const t = P(S.teller);
   const k1 = JSON.stringify([S.phase, S.teller, S.prompt, S.timer && [S.timer.ends_at, S.timer.paused_left, S.timer.total],
-    S.asker, S.queue.map((id) => [id, P(id)?.name]), S.settings, t && [t.name, t.swap_used],
+    S.asker, S.queue.map((id) => [id, P(id)?.name]), S.settings, t && [t.name, t.device], S.teller_cards,
     S.phase === 'lobby' ? S.players.map((p) => [p.name, p.family]) : 0, S.join_url, S.stories]);
   if (k1 !== stageKey) { stageKey = k1; renderStage(); }
 
   const k2 = JSON.stringify([S.players, S.phase, S.teller, S.settings.families, S.asker]);
   if (k2 !== sideKey) { sideKey = k2; renderSide(); }
 
-  spawnReactions();
+  showReactions(S);
   tick();
 }
 
@@ -125,7 +125,7 @@ function renderStage() {
       || '<span class="hint">Waiting for people to join…</span>';
     h = `<div class="lobby">
       <div class="brand-big">Tell Me <span class="kanji">More</span></div>
-      <p class="lede">Draw a card. Tell a short, true story. Then take questions.</p>
+      <p class="lede">Everyone gets 3 cards to think about. On your turn, pick one,<br>tell a short true story, then take questions.</p>
       <div class="join-box"><div id="qr" class="qr"></div>
         <div><div class="eyebrow">Join on your phone</div>
         <div class="join-url">${esc(S.join_url.replace(/^http:\/\//, ''))}</div>
@@ -138,8 +138,12 @@ function renderStage() {
       <div class="eyebrow">Story ${S.story_no} · up next</div>
       <div class="teller-name">${esc(t.name)}</div>
       ${S.settings.families.length > 1 ? `<span class="chip">${esc(famName(f))}</span>` : ''}
-      <button class="card back" data-act="draw" aria-label="Draw a card"><span class="seal">?</span><span class="tap">Tap to draw</span></button>
+      ${t.device
+        ? `<div class="card back waiting"><span class="seal">?</span><span class="tap">Choosing a card on their phone…</span></div>`
+        : `<p class="hint">${esc(t.name)} doesn't have a phone. Read their cards out and tap the one they pick:</p>
+           <div class="hand-row">${S.teller_cards.map((c, i) => handCardHTML(c, i)).join('')}</div>`}
       <div class="row">
+        <button class="btn ghost" data-act="draw">🎲 Surprise card</button>
         <button class="btn ghost" data-act="custom">✎ Write a prompt just for tonight</button>
         <button class="btn ghost" data-act="next_turn">Skip to someone else</button>
       </div></div>`;
@@ -147,11 +151,11 @@ function renderStage() {
     const flip = S.prompt.text !== lastFlip;
     lastFlip = S.prompt.text;
     h = `<div class="turn fam-${f}">
-      <div class="row"><span class="chip">${esc(t.name)}</span><span class="hint">drew…</span></div>
+      <div class="row"><span class="chip">${esc(t.name)}</span><span class="hint">${S.prompt.level === 'custom' ? 'gets a special one…' : 'chose…'}</span></div>
       ${cardHTML(S.prompt, flip)}
       <div class="row">
         <button class="btn primary big" data-act="start_story">Start the story · ${fmt(S.settings.story_secs * 1000)}</button>
-        <button class="btn" data-act="swap">${t.swap_used ? 'Swap again' : 'Swap card · 1 free'}</button>
+        <button class="btn" data-act="unplay">Pick a different card</button>
       </div></div>`;
   } else if (S.phase === 'telling') {
     const paused = S.timer.ends_at == null;
@@ -217,7 +221,7 @@ function renderSide() {
       const picking = grouped && !p.family_set && p.device ? '<span class="tag soft">choosing…</span>' : '';
       return `<li class="${isT ? 'is-teller' : ''}">
         ${move}<span class="pname">${esc(p.name)}</span>${picking}
-        <span class="meta">${isT && S.phase !== 'lobby' ? '<span class="tag">telling</span>' : ''}${p.id === S.asker ? '<span class="tag">asking</span>' : ''}${p.hand ? '✋' : ''}${p.device ? '' : '<span title="No phone — the host taps for them">📵</span>'}<span class="told" title="Stories told">${'●'.repeat(p.told)}</span></span>
+        <span class="meta">${isT && S.phase !== 'lobby' ? `<span class="tag">${['ready', 'card'].includes(S.phase) ? 'up next' : 'telling'}</span>` : ''}${p.id === S.asker ? '<span class="tag">asking</span>' : ''}${p.hand ? '✋' : ''}${p.device ? '' : '<span title="No phone — the host taps for them">📵</span>'}<span class="told" title="Stories told">${'●'.repeat(p.told)}</span></span>
         ${btn}<button class="x" data-act="remove_player" data-target="${p.id}" aria-label="Remove ${esc(p.name)}">×</button></li>`;
     }).join('');
     if (!grouped) return `<section class="fam"><ul>${rows || '<li class="empty">No one yet</li>'}</ul></section>`;
@@ -250,20 +254,10 @@ function tick() {
 }
 setInterval(tick, 250);
 
-function spawnReactions() {
-  for (const r of S.reactions) {
-    if (r.n <= lastReact) continue;
-    lastReact = r.n;
-    const el = document.createElement('div');
-    el.className = `float fam-${r.family}`;
-    el.style.left = `${8 + Math.random() * 80}%`;
-    el.innerHTML = `<span class="e">${esc(r.e)}</span><span class="who">${esc(r.name)}</span>`;
-    $('#floats').appendChild(el);
-    setTimeout(() => el.remove(), 3600);
-  }
-}
 
 document.addEventListener('click', (e) => {
+  const card = e.target.closest('[data-play]');
+  if (card) { hostAct('play_card', { index: +card.dataset.play }); return; }
   const b = e.target.closest('[data-act]');
   if (!b) return;
   const a = b.dataset.act;

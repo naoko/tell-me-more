@@ -1,13 +1,13 @@
 # Tell Me More — a story game for gatherings
 
-Draw a card, tell a short true story against a gentle timer, then take questions.
+Pick a card, tell a short true story against a gentle timer, then take questions.
 The tablet is the shared table screen; everyone else joins from their phone.
 
 No installs: Python 3.8+ standard library only.
 
 ![The tablet during questions, with three families](docs/tablet.png)
 
-![Phone screens: joining, telling, raising a hand, taking questions](docs/phones.png)
+![Phone screens: your cards, picking one on your turn, peeking while you wait, ready to tell](docs/phones.png)
 
 ## Run it
 
@@ -36,7 +36,7 @@ The host key changes each run. To keep the host link the same so you can bookmar
 ## How a turn works
 
 1. **Ready.** The next storyteller is picked automatically. Everyone tells once before anyone tells twice. If you've added families, turns also rotate between them. Tap any name to pick someone else instead.
-2. **Draw.** The storyteller taps the card, on their phone or on the tablet. They get **one free swap** per game. The host can swap any time, or write a one-off prompt ("Tell us about the proposal!").
+2. **Pick a card.** Everyone holds **3 private cards** on their phone from the moment they join, so they can think about their story while others are telling theirs. On their turn they tap the one they want, or 🎲 **Surprise me** for a blind draw. "Pick a different card" puts it back. After telling, they get a fresh card. For someone without a phone, the tablet shows their cards to read out and tap. The host can also write a one-off prompt ("Tell us about the proposal!").
 3. **Tell.** A ring timer counts down (2½ min by default). It turns gold for the last 30 seconds and plays a soft chime at zero. Nothing cuts anyone off, and the host can pause or add 30 seconds.
 4. **Questions.** People raise a hand on their phone. If you've added families, **hands from a different family than the storyteller's go to the front of the line**. The storyteller or host taps "Call on".
 5. **Next storyteller →**
@@ -55,13 +55,13 @@ If you add families after people have joined, their phones ask which family they
 
 ## Depth levels
 
-The buttons at the top of the tablet control which prompts can be drawn:
+The buttons at the top of the tablet control which prompts can be dealt. Unlocking a level gives everyone one card from it; going back down replaces cards that are now too deep.
 
 - **Light**: easy, fun stories. Good for the first round.
 - **+ Warm**: adds family, love, advice, and growing up.
 - **+ Deeper**: adds hard years, fears, and people we miss. Open this only when the room feels ready.
 
-Edit `prompts.json` to add your own. Changes apply on the next card, with no restart.
+There are 64 prompts. Edit `prompts.json` to add your own; changes apply to the next card dealt, with no restart. Since everyone holds 3 cards, keep at least ~4 Light prompts per guest.
 
 ## Keepsake
 

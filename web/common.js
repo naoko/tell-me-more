@@ -6,10 +6,12 @@ const TellMeMore = (() => {
     document.body.classList.toggle('offline', !ok);
   }
 
-  function connect(onState) {
+  // query() returns who is watching (?player_id=… or ?key=…) so the server can
+  // include that viewer's private cards. Call reopen() after it changes.
+  function connect(onState, query = () => '') {
     let es;
     const open = () => {
-      es = new EventSource('/api/events');
+      es = new EventSource('/api/events' + query());
       es.onopen = () => setConn(true);
       es.onmessage = (e) => {
         const s = JSON.parse(e.data);
@@ -27,6 +29,7 @@ const TellMeMore = (() => {
     document.addEventListener('visibilitychange', () => {
       if (document.visibilityState === 'visible' && es.readyState === EventSource.CLOSED) open();
     });
+    return { reopen() { es.close(); open(); } };
   }
 
   async function act(action, extra = {}) {
@@ -107,6 +110,25 @@ const TellMeMore = (() => {
   // Browsers only allow sound after a tap; unlock on the first one.
   document.addEventListener('click', () => audio(), { once: true });
 
+  // Floating emoji reactions. Returns a function to call with each new state;
+  // reactions that already existed when the page loaded are not replayed.
+  function reactionLayer(container) {
+    let last = null;
+    return (s) => {
+      if (last === null) { last = Math.max(0, ...s.reactions.map((r) => r.n)); return; }
+      for (const r of s.reactions) {
+        if (r.n <= last) continue;
+        last = r.n;
+        const el = document.createElement('div');
+        el.className = `float fam-${r.family}`;
+        el.style.left = `${8 + Math.random() * 80}%`;
+        el.innerHTML = `<span class="e">${esc(r.e)}</span><span class="who">${esc(r.name)}</span>`;
+        container.appendChild(el);
+        setTimeout(() => el.remove(), 3600);
+      }
+    };
+  }
+
   const LEVEL_LABEL = { light: 'Light', warm: 'Warm', deeper: 'Deeper', custom: 'Just for tonight' };
 
   function cardHTML(prompt, flip) {
@@ -115,9 +137,16 @@ const TellMeMore = (() => {
       <p class="prompt">${esc(prompt.text)}</p></div>`;
   }
 
+  // A small card the storyteller can tap to choose (or just look at, when no index).
+  function handCardHTML(card, index) {
+    const tag = index === undefined ? 'div' : 'button';
+    const attrs = index === undefined ? '' : ` data-play="${index}"`;
+    return `<${tag} class="hand-card lvl-${card.level}"${attrs}><span class="lvl-tag">${LEVEL_LABEL[card.level] || ''}</span>${esc(card.text)}</${tag}>`;
+  }
+
   function miniCardHTML(prompt) {
     return `<div class="mini-card lvl-${prompt.level}"><span class="lvl-tag">${LEVEL_LABEL[prompt.level] || ''}</span>${esc(prompt.text)}</div>`;
   }
 
-  return { connect, act, remaining, fmt, esc, toast, chime, cardHTML, miniCardHTML, LEVEL_LABEL };
+  return { connect, act, remaining, fmt, esc, toast, chime, cardHTML, miniCardHTML, handCardHTML, reactionLayer, LEVEL_LABEL };
 })();
