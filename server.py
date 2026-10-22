@@ -31,7 +31,9 @@ from urllib.parse import parse_qs, urlparse
 ROOT = os.path.dirname(os.path.abspath(__file__))
 WEB_DIR = os.path.join(ROOT, "web")
 PROMPTS_PATH = os.path.join(ROOT, "prompts.json")
-STORIES_DIR = os.path.join(ROOT, "stories")
+STORIES_DIR = os.path.join(ROOT, "stories")  # git-ignored: tonight's stories and your settings
+SETTINGS_PATH = os.path.join(STORIES_DIR, "settings.json")
+RESUME_HOURS = 6  # restarting within this long continues tonight's story list
 
 LEVELS = ["light", "warm", "deeper"]
 REACTIONS = ["❤️", "😂", "😮", "👏", "🥲"]
@@ -41,6 +43,9 @@ HAND_SIZE = 3  # cards each person holds privately to think about before their t
 MAX_HAND = HAND_SIZE + 1  # unlocking a level can add a 4th card for a while
 NAME_LEN = 24
 PROMPT_LEN = 300
+NOTE_LEN = 140
+SAVED_SETTINGS = ("story_secs", "question_secs", "allow_deeper", "wifi_ssid", "wifi_password")
+CLOSING_PROMPT = "Before we go: one thing you learned about someone tonight"
 HOST_TRIES_PER_MIN = 10  # wrong host keys allowed per device per minute
 MIME = {
     ".html": "text/html; charset=utf-8",
@@ -130,6 +135,16 @@ def parse_prompts(path):
         out[lvl] = list(dict.fromkeys(p for p in cleaned if p))  # drop blanks and duplicates
     if not out["light"]:
         raise ValueError('prompts.json needs at least one "light" prompt')
+    # "skip": prompts not to deal at this event (without deleting them)
+    skip = {clean_text(p, PROMPT_LEN) for p in data.get("skip", []) if isinstance(p, str)}
+    for lvl in LEVELS:
+        kept = [p for p in out[lvl] if p not in skip]
+        if kept or lvl != "light":
+            out[lvl] = kept
+    # "tonight": prompts written for this event, offered to the host to pick from
+    tonight = data.get("tonight", [])
+    out["tonight"] = [clean_text(p, PROMPT_LEN) for p in tonight if isinstance(p, str) and p.strip()] \
+        if isinstance(tonight, list) else []
     return out
 
 
@@ -177,7 +192,7 @@ class Game:
     """All game state lives here, guarded by one lock. Every change bumps
     `version` and wakes the live-update streams."""
 
-    def __init__(self, host_key, join_url):
+    def __init__(self, host_key, join_url, resume=True):
         self.cond = threading.Condition()  # re-entrant (RLock inside)
         self.version = 0
         self.host_key = host_key
@@ -189,7 +204,10 @@ class Game:
             "max_level": 1,  # 1 = light, 2 = light + warm, 3 = everything
             "allow_deeper": False,  # Deeper cards are hidden unless the host opts in
             "families": ["Everyone"],  # one group = no families; add up to MAX_GROUPS in Settings
+            "wifi_ssid": "",  # shown as a "join the Wi-Fi" QR code on the join screen
+            "wifi_password": "",
         }
+        self._load_settings()
         self.players = {}  # public id -> player dict (includes the secret token)
         self.tokens = {}  # secret token -> public id
         self.order = []  # join order
@@ -198,8 +216,52 @@ class Game:
         self.last_react = {}
         os.makedirs(STORIES_DIR, exist_ok=True)
         self._new_session()
+        if resume:
+            self._resume_session()
 
     # ---------- helpers ----------
+
+    def _load_settings(self):
+        try:
+            with open(SETTINGS_PATH, encoding="utf-8") as f:
+                saved = json.load(f)
+            for k in SAVED_SETTINGS:
+                if k in saved and type(saved[k]) is type(self.settings[k]):
+                    self.settings[k] = saved[k]
+        except (OSError, ValueError):
+            pass
+
+    def _save_settings(self):
+        try:
+            with open(SETTINGS_PATH, "w", encoding="utf-8") as f:
+                json.dump({k: self.settings[k] for k in SAVED_SETTINGS}, f, ensure_ascii=False, indent=2)
+        except OSError as e:
+            print("  ⚠  couldn't save settings:", e, flush=True)
+
+    def _resume_session(self):
+        """Restarted mid-evening? Keep adding to tonight's story list."""
+        try:
+            files = sorted(f for f in os.listdir(STORIES_DIR) if f.endswith(".json") and f[:1].isdigit())
+        except OSError:
+            return
+        if not files:
+            return
+        path = os.path.join(STORIES_DIR, files[-1])
+        try:
+            if time.time() - os.path.getmtime(path) > RESUME_HOURS * 3600:
+                return
+            with open(path, encoding="utf-8") as f:
+                data = json.load(f)
+            stories = data["stories"]
+            if not isinstance(stories, list) or not stories:
+                return
+        except (OSError, ValueError, KeyError, TypeError):
+            return
+        self.session_path = path
+        self.stories = stories
+        self.started = data.get("started_ts") or os.path.getmtime(path)
+        print(f"  Continuing tonight's story list ({len(stories)} so far, from stories/{files[-1]}).\n"
+              f"  Start with --fresh for a new one.", flush=True)
 
     def _new_session(self):
         self.started = time.time()
@@ -476,8 +538,9 @@ class Game:
         try:
             tmp = self.session_path + ".tmp"
             with open(tmp, "w", encoding="utf-8") as f:
-                json.dump({"started": long_date(self.started), "families": self.settings["families"],
-                           "stories": self.stories}, f, ensure_ascii=False, indent=2)
+                json.dump({"started": long_date(self.started), "started_ts": self.started,
+                           "families": self.settings["families"], "stories": self.stories},
+                          f, ensure_ascii=False, indent=2)
             os.replace(tmp, self.session_path)
         except OSError as e:
             print("  ⚠  couldn't save stories:", e, flush=True)
@@ -491,6 +554,7 @@ class Game:
         queue = [p for p in order if p["hand"] and p["id"] not in (self.teller, self.partner)]
         # People from other families ask first, then people who haven't asked much yet.
         queue.sort(key=lambda p: (p["family"] == tf, p["asked"], p["hand"]))
+        settings = {k: v for k, v in self.settings.items() if not k.startswith("wifi_")}
         timer = None
         if self.timer:
             timer = {k: self.timer[k] for k in ("total", "ends_at", "paused_left")}
@@ -499,7 +563,7 @@ class Game:
             "server_now": now_ms(),
             "phase": self.phase,
             "paused_turn": self.phase == "lobby" and bool(self.saved_phase),
-            "settings": self.settings,
+            "settings": settings,
             "players": [{k: v for k, v in p.items() if k != "token"} for p in order],
             "me": viewer if viewer in self.players else None,
             "teller": self.teller,
@@ -515,6 +579,12 @@ class Game:
             "my_cards": self.cards.get(viewer, []) if viewer in self.players else [],
             "teller_cards": self.cards.get(self.teller, []) if (is_host or viewer == self.teller) else [],
             "custom_draft": self.custom_draft if is_host else None,
+            "wifi": {"ssid": self.settings["wifi_ssid"], "password": self.settings["wifi_password"]} if is_host else None,
+            "tonight": PROMPTS.get()["tonight"] if is_host else [],
+            "note": (self.current or {}).get("note", ""),
+            "closing_prompt": CLOSING_PROMPT,
+            "story_list": [{k: s.get(k) for k in ("n", "teller", "prompt", "note", "family_index")}
+                           for s in self.stories] if self.phase == "closing" else [],
         }
 
     def public_json(self, token=None, key=None, ip=""):
@@ -589,6 +659,10 @@ class Game:
             new["max_level"] = as_int(d["max_level"], 1, 3 if allow_deeper else 2)
         elif not allow_deeper and s["max_level"] > 2:
             new["max_level"] = 2  # Deeper was just switched off
+        for k in ("wifi_ssid", "wifi_password"):
+            if k in d:
+                self._need(isinstance(d[k], str) and len(d[k]) <= 64, "Wi-Fi details are too long")
+                new[k] = d[k].strip() if k == "wifi_ssid" else d[k]
         remap = None
         if "families" in d:
             raw = d["families"]
@@ -612,7 +686,7 @@ class Game:
             new["families"] = names
 
         old_level = s["max_level"]
-        for k in ("story_secs", "question_secs", "allow_deeper", "max_level"):
+        for k in ("story_secs", "question_secs", "allow_deeper", "max_level", "wifi_ssid", "wifi_password"):
             if k in new:
                 s[k] = new[k]
         if s["max_level"] != old_level:
@@ -625,13 +699,15 @@ class Game:
                 for p in self.players.values():
                     p["family_set"] = False
             s["families"] = new["families"]
+        if any(k in new for k in SAVED_SETTINGS):
+            self._save_settings()
 
     def _a_start(self, d, host, me):
         self._need(host)
         self._need(self.players, "Add at least one person first")
-        if self.phase != "lobby":
+        if self.phase not in ("lobby", "closing"):
             return
-        if self.saved_phase and self.teller in self.players:
+        if self.phase == "lobby" and self.saved_phase and self.teller in self.players:
             self.phase, self.saved_phase = self.saved_phase, None
             if self.lobby_paused:
                 self._resume_timer()
@@ -642,7 +718,8 @@ class Game:
     def _a_lobby(self, d, host, me):
         """Back to the join screen (e.g. a late arrival). Sets the current turn aside."""
         self._need(host)
-        if self.phase == "lobby":
+        if self.phase in ("lobby", "closing"):
+            self.phase = "lobby"
             return
         self.lobby_paused = self._pause_timer()
         self.saved_phase = self.phase
@@ -832,6 +909,35 @@ class Game:
         self._record_story()
         self._end_turn()
 
+    def _a_story_note(self, d, host, me):
+        """A one-line note for the keepsake ("Ken's flat tire outside Yosemite, 1979")."""
+        self._need(host or self._is_telling(me))
+        note = clean_text(d.get("note"), NOTE_LEN)
+        if d.get("n") is not None:  # a story already in the list (from the closing screen)
+            self._need(host)
+            i = as_int(d.get("n"), 1, max(1, len(self.stories))) - 1
+            self._need(0 <= i < len(self.stories), "No such story")
+            self.stories[i]["note"] = note
+            self._save()
+        else:
+            self._need(self.current is not None, "No story in progress")
+            self.current["note"] = note
+
+    def _a_finish(self, d, host, me):
+        """Wrap up the evening: save the story in progress and show the closing screen."""
+        self._need(host)
+        ph = self._turn_phase()
+        if ph in ("telling", "questions"):
+            self._record_story()
+        elif ph == "card":
+            self._return_prompt()
+        for p in self.players.values():
+            p["hand"] = None
+        if self.teller in self.players:
+            self._fill(self.teller)
+        self._begin_turn(None)
+        self.phase = "closing"
+
     def _a_react(self, d, host, me):
         self._need(me, "Join the game first")
         emoji = d.get("emoji")
@@ -865,7 +971,8 @@ def keepsake_html(families, stories, started):
         items.append(
             f'<li class="kstory"><div class="knum">{s["n"]}</div><div>'
             f'<p class="kprompt">{escape(s["prompt"])}</p>'
-            f'<div class="kmeta"><span class="chip fam-{s["family_index"]}">{escape(s["teller"])}</span>{meta}</div>'
+            + (f'<p class="knote">“{escape(s["note"])}”</p>' if s.get("note") else "")
+            + f'<div class="kmeta"><span class="chip fam-{s["family_index"]}">{escape(s["teller"])}</span>{meta}</div>'
             f'</div></li>')
     body = "".join(items) or '<li class="hint">No stories yet — they appear here as each turn finishes.</li>'
     fams = escape(" · ".join(families)) + " — " if len(families) > 1 else ""
@@ -883,6 +990,8 @@ def keepsake_md(families, stories, started):
     lines = ["# Tell Me More — our stories", f"_{fams}{long_date(started)}_", ""]
     for s in stories:
         lines.append(f"## {s['n']}. {s['prompt']}")
+        if s.get("note"):
+            lines.append(f"> {s['note']}")
         lines.append(" · ".join([f"**{s['teller']}**"] + story_meta(s)))
         lines.append("")
     return "\n".join(lines)
@@ -1037,6 +1146,7 @@ def main():
     ap = argparse.ArgumentParser(description="Tell Me More — a storytelling game server")
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--host-key", default=None, help="key for the host screen (default: random each run)")
+    ap.add_argument("--fresh", action="store_true", help="start a new story list instead of continuing tonight's")
     args = ap.parse_args()
 
     try:
@@ -1046,7 +1156,7 @@ def main():
     ip = lan_ip()
     join_url = f"http://{ip}:{args.port}"
     key = args.host_key or secrets.token_urlsafe(9)
-    GAME = Game(key, join_url)
+    GAME = Game(key, join_url, resume=not args.fresh)
 
     srv = Server(("0.0.0.0", args.port), Handler)
     host_name = socket.gethostname()

@@ -56,6 +56,10 @@
           <option value="300">5 minutes</option><option value="420">7 minutes</option>
         </select>
       </label>
+      <div class="lbl-group">Home Wi-Fi <span class="opt">optional</span></div>
+      <p class="hint small-hint">Shown as a "join the Wi-Fi" QR code on the join screen, so guests don't have to type it. Saved on this computer for next time.</p>
+      <div class="wifi-row"><input name="wifi_ssid" maxlength="64" placeholder="Wi-Fi name" autocomplete="off">
+        <input name="wifi_password" maxlength="64" placeholder="Password" autocomplete="off"></div>
       <label class="check"><input type="checkbox" name="allow_deeper"><span>Offer <b>Deeper</b> cards (grief, hard years, turning points). Best left off for a first meeting.</span></label>
       <div class="lbl-group">Families <span class="opt">optional</span></div>
       <p class="hint small-hint">With two or more, turns rotate between families and other families get to ask questions first.</p>
@@ -69,8 +73,24 @@
       <hr style="border:0;border-top:1px solid var(--line);margin:1.2rem 0">
       <div class="row">
         <button type="button" class="btn small" data-act="lobby">Show join screen</button>
+        <button type="button" class="btn small" data-act="finish">Wrap up the evening</button>
         <a class="btn small" href="/keepsake" target="_blank">Story keepsake ↗</a>
         <button type="button" class="btn small danger" data-act="reset">New game</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="customdlg">
+    <form method="dialog" id="customform">
+      <h2>A prompt just for tonight</h2>
+      <div id="tonightlist"></div>
+      <label>Or write one
+        <textarea name="text" maxlength="300" rows="3" placeholder="e.g. A road trip you took together"></textarea>
+        <span class="hint" id="customcount"></span>
+      </label>
+      <div class="row left">
+        <button class="btn primary" value="use">Use this prompt</button>
+        <button class="btn ghost" value="cancel" formnovalidate>Cancel</button>
       </div>
     </form>
   </dialog>
@@ -103,7 +123,7 @@ function render() {
   const k1 = JSON.stringify([S.phase, S.paused_turn, S.teller, S.partner, S.prompt, S.timer, S.asker,
     S.queue.map((id) => [id, P(id)?.name]), S.settings, t && [t.name, t.device], S.teller_cards,
     S.phase === 'lobby' ? S.players.map((p) => [p.name, p.family]) : 0, S.join_url, S.stories,
-    S.partner && P(S.partner)?.name]);
+    S.partner && P(S.partner)?.name, S.story_list, S.wifi]);
   if (k1 !== stageKey) { stageKey = k1; renderStage(); }
 
   const k2 = JSON.stringify([S.players, S.phase, S.paused_turn, S.teller, S.partner, S.settings.families, S.asker]);
@@ -135,10 +155,16 @@ function renderStage() {
     h = `<div class="lobby">
       <div class="brand-big">Tell Me <span class="kanji">More</span></div>
       <p class="lede">Everyone gets 3 cards to think about. On your turn, pick one,<br>tell a short true story, then take questions.</p>
+      <div class="join-boxes${S.wifi && S.wifi.ssid ? ' two' : ''}">
+      ${S.wifi && S.wifi.ssid ? `<div class="join-box"><div id="wifiqr" class="qr"></div>
+        <div><div class="eyebrow">1 · Join the Wi-Fi</div>
+        <div class="join-url">${esc(S.wifi.ssid)}</div>
+        <div class="hint">Point your camera at the code${S.wifi.password ? `,<br>or use password <b>${esc(S.wifi.password)}</b>` : ''}</div></div></div>` : ''}
       <div class="join-box"><div id="qr" class="qr"></div>
-        <div><div class="eyebrow">Join on your phone</div>
+        <div><div class="eyebrow">${S.wifi && S.wifi.ssid ? '2 · ' : ''}Join the game</div>
         <div class="join-url">${esc(S.join_url.replace(/^http:\/\//, ''))}</div>
         <div class="hint">Use the home Wi-Fi (not cellular data).<br>Rather not use a phone? No problem — we'll add you here.</div></div></div>
+      </div>
       <div class="chips">${people}</div>
       <button class="btn primary big" data-act="start" ${S.players.length ? '' : 'disabled'}>${S.paused_turn || S.stories ? 'Back to the stories →' : 'Start the stories →'}</button>
       ${S.paused_turn ? `<p class="hint">${names()}'s turn is waiting right where you left it.</p>` : ''}
@@ -156,7 +182,8 @@ function renderStage() {
         <button class="btn ghost" data-act="draw">🎲 Surprise card</button>
         <button class="btn ghost" data-act="custom">✎ Write a prompt just for tonight</button>
         <button class="btn ghost" data-act="pass_turn">Come back to ${esc(t.name)} later</button>
-      </div></div>`;
+      </div>
+      ${S.stories ? '<button class="btn ghost small wrapup" data-act="finish">Wrap up the evening</button>' : ''}</div>`;
   } else if (S.phase === 'card') {
     const flip = S.prompt.text !== lastFlip;
     lastFlip = S.prompt.text;
@@ -198,22 +225,53 @@ function renderStage() {
       <div class="qtime"><span id="tval"></span> <span id="tnote" class="hint"></span>
         ${paused ? '<button class="btn small" data-act="resume">▶ Resume</button>' : ''}
         <button class="btn small ghost" data-act="add_time">+30s</button></div>
-      <button class="btn primary big" data-act="next_turn">Next storyteller →</button>
+      <div class="notebox"><input id="note" maxlength="140" placeholder="A note for the keepsake (optional) — e.g. “the flat tire outside Yosemite, 1979”" value="${esc(S.note)}"></div>
+      <div class="row">
+        <button class="btn primary big" data-act="next_turn">Next storyteller →</button>
+        <button class="btn ghost" data-act="finish">That was the last one — wrap up</button>
+      </div>
+    </div>`;
+  } else if (S.phase === 'closing') {
+    const list = S.story_list.map((x) => `<li class="kstory"><div class="knum">${x.n}</div><div class="grow">
+        <p class="kprompt">${esc(x.prompt)}</p>
+        <div class="kmeta"><span class="chip fam-${x.family_index}">${esc(x.teller)}</span></div>
+        <input class="noteedit" data-n="${x.n}" maxlength="140" placeholder="Add a note for the keepsake" value="${esc(x.note || '')}"></div></li>`).join('');
+    h = `<div class="closing">
+      <div class="big-emoji">💛</div>
+      <div class="brand-big">Thank you for the stories</div>
+      ${cardHTML({ text: S.closing_prompt, level: 'closing' }, true)}
+      <p class="say">Go around the table — no phones needed for this one.</p>
+      ${list ? `<h3 class="eyebrow">Tonight's stories</h3><ol class="klist">${list}</ol>` : ''}
+      <div class="row">
+        <a class="btn primary" href="/keepsake" target="_blank">Open the keepsake ↗</a>
+        <button class="btn ghost" data-act="start">Keep playing</button>
+      </div>
     </div>`;
   }
   $('#stage').innerHTML = h;
   if (S.phase === 'lobby') drawQR();
 }
 
+// Wi-Fi QR format: WIFI:T:WPA;S:<name>;P:<password>;; with \ ; , : " escaped
+const wifiEsc = (v) => v.replace(/([\\;,:"])/g, '\\$1');
+
 function drawQR() {
-  const el = document.getElementById('qr');
-  if (!el || !S) return;
-  if (!window.qrcode) { el.hidden = true; return; }
-  const q = qrcode(0, 'M');
-  q.addData(S.join_url);
-  q.make();
-  el.hidden = false;
-  el.innerHTML = q.createImgTag(6, 0);
+  if (!S) return;
+  const draw = (id, text) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (!window.qrcode) { el.hidden = true; return; }
+    const q = qrcode(0, 'M');
+    q.addData(text);
+    q.make();
+    el.hidden = false;
+    el.innerHTML = q.createImgTag(4, 12);  // the white margin (quiet zone) helps cameras read it
+  };
+  draw('qr', S.join_url);
+  if (S.wifi && S.wifi.ssid) {
+    const w = S.wifi;
+    draw('wifiqr', w.password ? `WIFI:T:WPA;S:${wifiEsc(w.ssid)};P:${wifiEsc(w.password)};;` : `WIFI:T:nopass;S:${wifiEsc(w.ssid)};;`);
+  }
 }
 
 function renderSide() {
@@ -284,11 +342,7 @@ document.addEventListener('click', (e) => {
   switch (a) {
     case 'level': return hostAct('settings', { max_level: +b.dataset.level });
     case 'open_settings': return openSettings();
-    case 'custom': {
-      const text = window.prompt('A prompt just for tonight:', S.custom_draft || '');
-      if (text && text.trim()) hostAct('custom_prompt', { text });
-      return;
-    }
+    case 'custom': return openCustom();
     case 'remove_player':
       if (confirm(`Remove ${P(target)?.name} from the game?`)) hostAct(a, { target });
       return;
@@ -301,11 +355,48 @@ document.addEventListener('click', (e) => {
       return;
     }
     case 'lobby':
-      $('#settings').close();
+    case 'finish':
+      if ($('#settings').open) $('#settings').close();
       return hostAct(a);
     default:
       return hostAct(a, target ? { target } : {});
   }
+});
+
+// Notes for the keepsake: saved when you leave the box (or press Enter).
+document.addEventListener('change', (e) => {
+  if (e.target.id === 'note') hostAct('story_note', { note: e.target.value });
+  if (e.target.classList.contains('noteedit')) hostAct('story_note', { n: +e.target.dataset.n, note: e.target.value });
+});
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && (e.target.id === 'note' || e.target.classList.contains('noteedit'))) e.target.blur();
+});
+
+function openCustom() {
+  const f = $('#customform');
+  f.text.value = S.custom_draft || '';
+  $('#tonightlist').innerHTML = S.tonight.length
+    ? `<div class="lbl-group">From your list for tonight</div><div class="pick-list">${S.tonight.map((t, i) =>
+        `<button type="button" class="btn" data-tonight="${i}">${esc(t)}</button>`).join('')}</div>`
+    : '<p class="hint small-hint">Tip: prepare a few ahead of time under <b>"tonight"</b> in prompts.json and they\'ll appear here.</p>';
+  countCustom();
+  $('#customdlg').returnValue = '';
+  $('#customdlg').showModal();
+}
+function countCustom() {
+  const n = $('#customform').text.value.length;
+  $('#customcount').textContent = n ? `${n}/300` : '';
+}
+$('#customform').text.addEventListener('input', countCustom);
+$('#tonightlist').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-tonight]');
+  if (!b) return;
+  $('#customform').text.value = S.tonight[+b.dataset.tonight];
+  countCustom();
+});
+$('#customdlg').addEventListener('close', () => {
+  const text = $('#customform').text.value.trim();
+  if ($('#customdlg').returnValue === 'use' && text) hostAct('custom_prompt', { text });
 });
 
 $('#addform').addEventListener('submit', (e) => {
@@ -320,6 +411,8 @@ function openSettings() {
   f.story_secs.value = String(S.settings.story_secs);
   f.question_secs.value = String(S.settings.question_secs);
   f.allow_deeper.checked = !!S.settings.allow_deeper;
+  f.wifi_ssid.value = (S.wifi && S.wifi.ssid) || '';
+  f.wifi_password.value = (S.wifi && S.wifi.password) || '';
   renderFamList(S.settings.families.map((name, i) => ({ name, old: i })));
   $('#settings').returnValue = '';
   $('#settings').showModal();
@@ -331,6 +424,8 @@ $('#settings').addEventListener('close', () => {
     story_secs: +f.story_secs.value,
     question_secs: +f.question_secs.value,
     allow_deeper: f.allow_deeper.checked,
+    wifi_ssid: f.wifi_ssid.value,
+    wifi_password: f.wifi_password.value,
     ...readFamList(),
   });
 });

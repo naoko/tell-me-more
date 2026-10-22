@@ -81,6 +81,8 @@ a.btn { color: var(--ink); }
 .lvl-warm { --lvl: var(--warm); }
 .lvl-deeper { --lvl: var(--deeper); }
 .lvl-custom { --lvl: var(--custom); }
+.lvl-closing { --lvl: var(--gold); }
+.closing .card, .pmain .card.lvl-closing { aspect-ratio: auto; min-height: 0; padding: 2.6rem 2rem 1.8rem; margin: 1rem auto; }
 .lvl-tag { position: absolute; top: 1.2rem; left: 1.4rem; font-size: .75rem; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--lvl, var(--light)); }
 .prompt { font-family: var(--serif); font-size: clamp(1.5rem, 3.4vw, 2.6rem); line-height: 1.22; margin: 0; text-wrap: balance; }
 
@@ -179,8 +181,12 @@ input, select {
 }
 input:focus, select:focus { outline: 2px solid var(--fam0); outline-offset: 1px; }
 
+.join-boxes { display: flex; gap: 1rem; justify-content: center; flex-wrap: wrap; margin-bottom: 1.4rem; }
+.join-boxes .join-box { margin-bottom: 0; }
+.join-boxes.two .join-box { flex: 1 1 330px; max-width: 380px; gap: .9rem; padding-right: 1.1rem; }
+.join-boxes.two .join-url { font-size: 1.1rem; overflow-wrap: anywhere; }
 .lobby .join-box { display: inline-flex; align-items: center; gap: 1.4rem; background: var(--paper); padding: 1rem 1.6rem 1rem 1rem; border-radius: 20px; box-shadow: var(--shadow); text-align: left; margin-bottom: 1.4rem; }
-.qr img { display: block; width: 168px; height: 168px; image-rendering: pixelated; }
+.qr img { display: block; width: 168px; height: 168px; image-rendering: pixelated; background: #fff; border-radius: 10px; }
 .join-url { font-family: ui-monospace, Menlo, monospace; font-size: 1.35rem; font-weight: 700; margin: .25rem 0; }
 .chips { display: flex; flex-wrap: wrap; gap: .5rem; justify-content: center; margin: 0 0 1.6rem; min-height: 2rem; }
 
@@ -198,6 +204,17 @@ dialog h2 { margin-top: 0; }
 dialog label { display: grid; gap: .3rem; font-size: .85rem; font-weight: 700; color: var(--muted); margin-bottom: .9rem; }
 dialog .row { justify-content: flex-start; margin-top: .6rem; }
 .danger { color: #a23b2a; }
+.wifi-row { display: grid; grid-template-columns: 1fr 1fr; gap: .5rem; margin-bottom: 1rem; }
+dialog textarea { font: inherit; font-size: 1.05rem; padding: .7em .9em; border-radius: 12px; border: 1px solid var(--line); background: var(--paper); color: var(--ink); width: 100%; resize: vertical; }
+#tonightlist .pick-list .btn { text-align: left; font-family: var(--serif); font-weight: 500; font-size: 1.05rem; }
+.notebox { max-width: 560px; margin: 0 auto 1rem; }
+.notebox input, .noteedit { font-size: .95rem; padding: .55em .8em; }
+.noteedit { margin-top: .5rem; }
+.wrapup { margin-top: 1rem; }
+.closing .brand-big { font-size: 2.2rem; margin-bottom: .2rem; }
+.closing .klist { text-align: left; margin: .6rem 0 1.4rem; }
+.closing .grow { flex: 1; }
+.knote { font-family: var(--serif); font-style: italic; color: var(--ink); margin: -.2rem 0 .5rem; }
 .lbl-group { font-size: .85rem; font-weight: 700; color: var(--muted); margin-bottom: .5rem; }
 .famlist { display: grid; gap: .5rem; margin-bottom: .6rem; }
 .famrow { display: flex; align-items: center; gap: .5rem; }

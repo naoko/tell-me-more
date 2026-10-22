@@ -5,9 +5,9 @@ The tablet is the shared table screen; everyone else joins from their phone.
 
 No installs: Python 3.8+ standard library only.
 
-![The tablet during questions, with three families](docs/tablet.png)
+![The tablet during questions, with a note for the keepsake](docs/tablet.png)
 
-![Phone screens: your cards, picking one on your turn, peeking while you wait, ready to tell](docs/phones.png)
+![Phone screens: your turn with swap buttons, choosing someone to tell it with, your card, and the partner's view](docs/phones.png)
 
 ## Run it
 
@@ -27,7 +27,7 @@ Keepsake:        http://192.168.1.20:8765/keepsake
 ```
 
 1. Open the **host** link on the tablet. Tip: in Safari, Share → Add to Home Screen gives you full-screen.
-2. Optional: open ⚙︎ Settings to change the story length or add families (see below).
+2. Optional: open ⚙︎ Settings to change the story length, add families (see below), or enter your **Wi-Fi name and password**. The join screen then shows a second QR code that puts phones on the Wi-Fi, which is where less techy guests usually get stuck. Settings are saved on this computer for next time.
 3. Guests scan the QR code on the tablet (or type the address) and type their name.
 4. For anyone who'd rather not use a phone, use "Add someone without a phone" on the tablet; the host taps for them.
 
@@ -47,6 +47,8 @@ The host key changes each run. To keep the host link the same so you can bookmar
 - **Come back to me later**: no story this time; they move to the end of the round.
 
 The host has the same "Come back to … later" button on the tablet.
+
+**Notes and ending.** During questions, the tablet has a box for a one-line note about the story ("the flat tire outside Yosemite, 1979"), which goes into the keepsake. When you're done, tap **That was the last one — wrap up** (or **Wrap up the evening** in Settings). The closing screen thanks everyone, asks the whole table one last question ("one thing you learned about someone tonight"), and lists the stories so you can add notes. **Keep playing** goes back to the game.
 
 Phones can also send ❤️ 😂 😮 👏 🥲, which float up on the tablet.
 
@@ -68,7 +70,12 @@ The buttons at the top of the tablet control which prompts can be dealt. Unlocki
 - **+ Warm**: adds family, love, advice, and growing up.
 - **+ Deeper**: adds grief, hard years, and turning points. It's hidden until you turn it on in ⚙︎ Settings, because it suits close friends better than a first meeting.
 
-There are 88 prompts (46 Light, 34 Warm, 8 Deeper). Edit `prompts.json` to add your own; changes apply to the next card dealt, with no restart. If an edit has a typo, the game keeps using the last good version and prints a warning in the terminal. Since everyone holds 3 cards, keep at least ~4 Light prompts per guest.
+There are 88 prompts (46 Light, 34 Warm, 8 Deeper). Two optional lists help you tailor an evening:
+
+- `"tonight"`: prompts you write for this event. They appear as a pick-list when you tap ✎ on the tablet, so you don't have to type in front of everyone. For example: `"A road trip you took with someone at this table"`. Check prompts about the couple with them first.
+- `"skip"`: prompts not to deal this time, without deleting them.
+
+ Edit `prompts.json` to add your own; changes apply to the next card dealt, with no restart. If an edit has a typo, the game keeps using the last good version and prints a warning in the terminal. Since everyone holds 3 cards, keep at least ~4 Light prompts per guest.
 
 ## Hosting tips
 
@@ -83,7 +90,7 @@ There are 88 prompts (46 Light, 34 Warm, 8 Deeper). Edit `prompts.json` to add y
 
 Every finished story is logged with the teller, their family, the prompt, and who asked questions.
 The tablet's Settings has a "Story keepsake" link, and `/keepsake.md` downloads it as text.
-Each game is also saved as JSON in `stories/`. It could be nice material for a wedding toast.
+Each game is also saved as JSON in `stories/` (which git ignores). It could be nice material for a wedding toast. If you restart the server during the evening, the story list carries on where it left off (start with `--fresh` to begin a new one).
 
 ## If phones can't connect
 

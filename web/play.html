@@ -152,7 +152,7 @@ function renderGame() {
   if (!(iTell && ['ready', 'card'].includes(S.phase))) choosingPartner = false;
   const k = JSON.stringify([S.phase, S.paused_turn, S.teller, S.partner, S.prompt, S.timer, S.asker, S.queue, me,
     t && t.name, S.settings, S.phase === 'lobby' ? S.players.length : 0, S.my_cards, showCards, choosingPartner,
-    S.players.map((p) => p.name)]);
+    S.players.map((p) => p.name), S.story_list]);
   if (view === 'game' && k === key) return;
   view = 'game';
   key = k;
@@ -160,7 +160,13 @@ function renderGame() {
   const hands = S.queue.length;
   let body = '';
 
-  if (S.phase === 'lobby' && S.paused_turn) {
+  if (S.phase === 'closing') {
+    const mine = S.story_list.filter((x) => x.teller.split(' & ').includes(me.name));
+    body = `<div class="big-emoji">💛</div><h2>Thank you for the stories</h2>
+      ${cardHTML({ text: S.closing_prompt, level: 'closing' }, false)}
+      <p class="say">Go around the table — no phones needed for this one.</p>
+      <p class="hint">${S.story_list.length} ${S.story_list.length === 1 ? 'story' : 'stories'} told tonight${mine.length ? `, ${mine.length} of them yours` : ''}.</p>`;
+  } else if (S.phase === 'lobby' && S.paused_turn) {
     body = `<div class="big-emoji">☕</div><h2>Short break</h2>
       <p class="say">The host is letting someone join. We'll pick up right where we left off.</p>
       ${myCards(showCards)}`;
@@ -252,7 +258,7 @@ function renderGame() {
   $('#app').innerHTML = `<header class="me fam-${me.family}"><span class="chip">${esc(me.name)}</span>
       ${S.settings.families.length > 1 ? `<button class="linkish" data-repick="1">${esc(S.settings.families[me.family])} ▾</button>` : ''}</header>
     <main class="pmain">${body}</main>
-    ${S.phase !== 'lobby' ? `<nav class="reacts">${REACTIONS.map((e) => `<button data-react="${e}" aria-label="React ${e}">${e}</button>`).join('')}</nav>` : ''}`;
+    ${!['lobby', 'closing'].includes(S.phase) ? `<nav class="reacts">${REACTIONS.map((e) => `<button data-react="${e}" aria-label="React ${e}">${e}</button>`).join('')}</nav>` : ''}`;
 }
 
 function tick() {

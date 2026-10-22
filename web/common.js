@@ -139,7 +139,7 @@ const TellMeMore = (() => {
     };
   }
 
-  const LEVEL_LABEL = { light: 'Light', warm: 'Warm', deeper: 'Deeper', custom: 'Just for tonight' };
+  const LEVEL_LABEL = { light: 'Light', warm: 'Warm', deeper: 'Deeper', custom: 'Just for tonight', closing: 'To end the evening' };
 
   function cardHTML(prompt, flip) {
     return `<div class="card face lvl-${prompt.level}${flip ? ' flip-in' : ''}">

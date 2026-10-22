@@ -1,5 +1,5 @@
 {
-  "_how_to_edit": "Add, remove or reword prompts in any list. Changes apply to the next card dealt, no restart needed (if an edit has a typo, the game keeps the last good version and warns in the terminal). Everyone holds 3 cards, so keep at least ~4 'light' prompts per guest. The host unlocks 'warm' from the tablet; 'deeper' only appears if turned on in Settings.",
+  "_how_to_edit": "Add, remove or reword prompts in any list. Changes apply to the next card dealt, no restart needed (if an edit has a typo, the game keeps the last good version and warns in the terminal). Everyone holds 3 cards, so keep at least ~4 'light' prompts per guest. The host unlocks 'warm' from the tablet; 'deeper' only appears if turned on in Settings. Optional extras: 'tonight' is a list of prompts you write for this event; they show up when the host taps ✎ on the tablet (check prompts about the couple with them first). 'skip' lists prompts not to deal at this event without deleting them.",
   "light": [
     "The most amazing thing you've ever seen with your own eyes",
     "The best meal you've ever had — where were you, and who were you with?",
@@ -93,5 +93,7 @@
     "A turning point you only recognized years later",
     "A goodbye you still think about",
     "The hardest thing that happened this year — and what got you through it"
-  ]
+  ],
+  "tonight": [],
+  "skip": []
 }
