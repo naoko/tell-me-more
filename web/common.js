@@ -6,7 +6,7 @@ const TellMeMore = (() => {
     document.body.classList.toggle('offline', !ok);
   }
 
-  // query() returns who is watching (?player_id=… or ?key=…) so the server can
+  // query() returns who is watching (?token=… or ?key=…) so the server can
   // include that viewer's private cards. Call reopen() after it changes.
   function connect(onState, query = () => '') {
     let es;
@@ -33,11 +33,16 @@ const TellMeMore = (() => {
   }
 
   async function act(action, extra = {}) {
-    const res = await fetch('/api/act', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action, ...extra }),
-    });
+    let res;
+    try {
+      res = await fetch('/api/act', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action, ...extra }),
+      });
+    } catch (_) {
+      throw new Error("Can't reach the game. Check you're on the home Wi-Fi.");
+    }
     let body = {};
     try { body = await res.json(); } catch (_) { /* ignore */ }
     if (!res.ok) throw new Error(body.error || 'Something went wrong');
@@ -73,6 +78,10 @@ const TellMeMore = (() => {
     el.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.classList.remove('show'), 2600);
+  }
+  function hideToast() {
+    const el = document.getElementById('toast');
+    if (el) el.classList.remove('show');
   }
 
   // A soft two-note bell — a nudge, not a buzzer.
@@ -112,7 +121,7 @@ const TellMeMore = (() => {
 
   // Floating emoji reactions. Returns a function to call with each new state;
   // reactions that already existed when the page loaded are not replayed.
-  function reactionLayer(container) {
+  function reactionLayer(container, { gutters = false } = {}) {
     let last = null;
     return (s) => {
       if (last === null) { last = Math.max(0, ...s.reactions.map((r) => r.n)); return; }
@@ -121,7 +130,8 @@ const TellMeMore = (() => {
         last = r.n;
         const el = document.createElement('div');
         el.className = `float fam-${r.family}`;
-        el.style.left = `${8 + Math.random() * 80}%`;
+        const x = Math.random();
+        el.style.left = gutters ? `${x < 0.5 ? 1 + x * 22 : 77 + (x - 0.5) * 30}%` : `${4 + x * 80}%`;
         el.innerHTML = `<span class="e">${esc(r.e)}</span><span class="who">${esc(r.name)}</span>`;
         container.appendChild(el);
         setTimeout(() => el.remove(), 3600);
@@ -137,16 +147,18 @@ const TellMeMore = (() => {
       <p class="prompt">${esc(prompt.text)}</p></div>`;
   }
 
-  // A small card the storyteller can tap to choose (or just look at, when no index).
-  function handCardHTML(card, index) {
-    const tag = index === undefined ? 'div' : 'button';
-    const attrs = index === undefined ? '' : ` data-play="${index}"`;
-    return `<${tag} class="hand-card lvl-${card.level}"${attrs}><span class="lvl-tag">${LEVEL_LABEL[card.level] || ''}</span>${esc(card.text)}</${tag}>`;
+  // A small card. With `play`, tapping it chooses it; with `swap`, a ↻ button trades it in.
+  function handCardHTML(card, index, { play = false, swap = false } = {}) {
+    const tag = play ? 'button' : 'div';
+    const attrs = play ? ` data-play="${index}"` : '';
+    const inner = `<${tag} class="hand-card lvl-${card.level}"${attrs}><span class="lvl-tag">${LEVEL_LABEL[card.level] || ''}</span>${esc(card.text)}</${tag}>`;
+    if (!swap) return inner;
+    return `<div class="hand-item">${inner}<button class="swap" data-swap="${index}" aria-label="Swap this card for a new one" title="Swap for a new card">↻</button></div>`;
   }
 
   function miniCardHTML(prompt) {
     return `<div class="mini-card lvl-${prompt.level}"><span class="lvl-tag">${LEVEL_LABEL[prompt.level] || ''}</span>${esc(prompt.text)}</div>`;
   }
 
-  return { connect, act, remaining, fmt, esc, toast, chime, cardHTML, miniCardHTML, handCardHTML, reactionLayer, LEVEL_LABEL };
+  return { connect, act, remaining, fmt, esc, toast, hideToast, chime, cardHTML, miniCardHTML, handCardHTML, reactionLayer, LEVEL_LABEL };
 })();

@@ -14,26 +14,29 @@
 
 <script src="/web/common.js"></script>
 <script>
-const { act, esc, fmt, remaining, toast, cardHTML, miniCardHTML, handCardHTML } = TellMeMore;
+const { act, esc, fmt, remaining, toast, hideToast, cardHTML, miniCardHTML, handCardHTML } = TellMeMore;
 const REACTIONS = ['❤️', '😂', '😮', '👏', '🥲'];
+const QUESTION_IDEAS = ['How old were you?', 'Who else was there?', 'What happened next?', 'Would you do it again?', 'How did it feel?'];
 const $ = (s) => document.querySelector(s);
 
+// Your secret token is how the game knows this phone is you.
 const store = {
-  get() { try { return localStorage.getItem('tellmemore_id'); } catch (_) { return null; } },
-  set(v) { try { localStorage.setItem('tellmemore_id', v); } catch (_) { /* private mode */ } },
+  get() { try { return localStorage.getItem('tellmemore_token'); } catch (_) { return null; } },
+  set(v) { try { localStorage.setItem('tellmemore_token', v); } catch (_) { /* private mode */ } },
 };
-let myId = store.get();
-let S = null, me = null, view = '', key = '', pickedFamily = null, lastFlip = '', buzzed = '', repick = false, showCards = false;
+let myToken = store.get();
+let S = null, me = null, view = '', key = '', pickedFamily = null, lastFlip = '';
+let repick = false, showCards = false, choosingPartner = false;
 
-const pAct = (a, extra = {}) => act(a, { player_id: myId, ...extra }).catch((e) => toast(e.message));
+const pAct = (a, extra = {}) => act(a, { token: myToken, ...extra }).catch((e) => toast(e.message));
 const P = (id) => S.players.find((p) => p.id === id);
 const showReactions = TellMeMore.reactionLayer(document.getElementById('floats'));
 
 const conn = TellMeMore.connect((s) => { S = s; render(); },
-  () => (myId ? `?player_id=${encodeURIComponent(myId)}` : ''));
+  () => (myToken ? `?token=${encodeURIComponent(myToken)}` : ''));
 
 function render() {
-  me = S.players.find((p) => p.id === myId) || null;
+  me = S.me ? P(S.me) : null;
   showReactions(S);
   const grouped = S.settings.families.length > 1;
   if (!me) renderJoin();
@@ -51,7 +54,7 @@ function renderJoin() {
       <p class="lede">A story game for tonight.</p>
       <form id="joinform">
         <label class="lbl" for="name">Your name</label>
-        <input id="name" autocomplete="given-name" maxlength="24" placeholder="First name" enterkeyhint="done">
+        <input id="name" autocomplete="given-name" maxlength="24" placeholder="What should we call you?" enterkeyhint="done">
         <div class="lbl" id="famlabel">Which family are you with?</div>
         <div class="famchoice" id="famchoice"></div>
         <button class="btn primary big" type="submit">Join</button>
@@ -60,11 +63,12 @@ function renderJoin() {
       e.preventDefault();
       const name = $('#name').value.trim();
       if (!name) return toast('Add your name first');
-      if (pickedFamily === null) return toast('Pick your family first');
+      if (pickedFamily === null) return toast('Tap your family’s name above');
       try {
         const r = await act('join', { name, family: pickedFamily });
-        myId = r.player_id;
-        store.set(myId);
+        myToken = r.token;
+        store.set(myToken);
+        hideToast();
         conn.reopen();  // reconnect as this player to receive your cards
       } catch (err) { toast(err.message); }
     });
@@ -78,27 +82,26 @@ function renderJoin() {
 }
 
 function renderPick() {
-  const k = JSON.stringify(['pick', S.settings.families, me.family, me.family_set]);
+  const k = JSON.stringify(['pick', S.settings.families, me.family, me.family_set, repick]);
   if (view === 'pick' && k === key) return;
   view = 'pick';
   key = k;
   $('#app').innerHTML = `<div class="join">
     <h2>Which family are you with?</h2>
-    <p class="hint">Hi ${esc(me.name)}! The host added families for tonight.</p>
+    <p class="say">Hi ${esc(me.name)}! This helps mix up the turns.</p>
     <div class="famchoice">${S.settings.families.map((n, f) =>
       `<button type="button" class="famopt fam-${f}${me.family_set && me.family === f ? ' on' : ''}" data-setfam="${f}">${esc(n)}</button>`).join('')}</div>
+    ${repick && me.family_set ? '<button class="btn ghost" data-cancelpick="1">Cancel</button>' : ''}
   </div>`;
 }
 
-// Your private cards, to think about while you wait.
+// Your private cards, to think about while you wait. ↻ swaps one for a new card.
 function myCards(open) {
-  const cards = (S.my_cards || []).map((c) => handCardHTML(c)).join('');
+  const cards = (S.my_cards || []).map((c, i) => handCardHTML(c, i, { swap: true })).join('');
   if (!cards) return '';
-  if (!open) {
-    return `<button class="btn ghost peek" data-togglecards="1">🂠 Peek at your cards</button>`;
-  }
-  return `<section class="mycards"><div class="eyebrow">Your cards</div>
-    <p class="hint">Think about which one you'd tell. You'll pick one on your turn.</p>
+  if (!open) return `<button class="btn ghost peek" data-togglecards="1">See my story cards</button>`;
+  return `<section class="mycards"><div class="eyebrow">Your story cards</div>
+    <p class="say">Have a look. When it's your turn, you'll choose one — no need to prepare. Tap ↻ to swap a card.</p>
     <div class="hand-col">${cards}</div>
     ${S.phase === 'lobby' ? '' : '<button class="btn ghost small" data-togglecards="1">Hide</button>'}</section>`;
 }
@@ -106,89 +109,143 @@ function myCards(open) {
 function handButton() {
   if (me.hand) {
     const pos = S.queue.indexOf(me.id) + 1;
-    return `<button class="btn hand on" data-act="lower_hand">✋ ${pos ? `#${pos} in line` : 'Hand up'} · tap to lower</button>`;
+    const nth = pos === 1 ? '1st' : pos === 2 ? '2nd' : pos === 3 ? '3rd' : `${pos}th`;
+    return `<button class="btn hand on" data-act="lower_hand">✋ ${pos ? `You're ${nth} to ask` : 'Hand up'} · tap to cancel</button>`;
   }
   return `<button class="btn hand" data-act="raise_hand">✋ I have a question</button>`;
 }
 
-function timerBlock() {
-  return `<div class="ring-wrap" id="ring">
+function questionIdeas() {
+  return `<p class="ideas"><span>Need an idea?</span> ${QUESTION_IDEAS.map((q) => `<i>“${q}”</i>`).join(' ')}</p>`;
+}
+
+function timerBlock(f) {
+  return `<div class="ring-wrap fam-${f}" id="ring">
     <svg class="ring" viewBox="0 0 120 120"><circle class="track" cx="60" cy="60" r="52"/><circle class="bar" id="ringbar" cx="60" cy="60" r="52" pathLength="100"/></svg>
     <div class="ring-center"><div class="ring-time" id="tval"></div><div class="ring-note" id="tnote"></div></div></div>`;
 }
 
+function tellerNames() {
+  const t = P(S.teller);
+  const p = P(S.partner);
+  return t ? esc(t.name) + (p ? ` &amp; ${esc(p.name)}` : '') : '';
+}
+
+function partnerPicker() {
+  const others = S.players.filter((p) => p.id !== me.id);
+  return `<h2>Tell it with someone</h2>
+    <p class="say">Pick someone to tell this story with you — a partner, a parent, a sibling.</p>
+    <div class="pick-list">${others.map((p) => `<button class="btn fam-${p.family}" data-partner="${p.id}"><span class="dot"></span> ${esc(p.name)}</button>`).join('')}</div>
+    <div class="stack"><button class="btn ghost" data-partner="">Just me</button></div>`;
+}
+
+function partnerLine() {
+  const p = P(S.partner);
+  if (!p) return '';
+  return `<p class="with">👥 Telling it with <b>${esc(p.name)}</b> <button class="linkish" data-partner="">change</button></p>`;
+}
+
 function renderGame() {
   const t = P(S.teller);
-  const mine = !!t && t.id === me.id;
-  const k = JSON.stringify([S.phase, S.teller, S.prompt, S.timer && [S.timer.ends_at, S.timer.paused_left, S.timer.total],
-    S.asker, S.queue, me, t && t.name, S.settings.families, S.phase === 'lobby' ? S.players.length : 0, S.my_cards, showCards]);
+  const iTell = !!t && t.id === me.id;
+  const iPartner = S.partner === me.id;
+  if (!(iTell && ['ready', 'card'].includes(S.phase))) choosingPartner = false;
+  const k = JSON.stringify([S.phase, S.paused_turn, S.teller, S.partner, S.prompt, S.timer, S.asker, S.queue, me,
+    t && t.name, S.settings, S.phase === 'lobby' ? S.players.length : 0, S.my_cards, showCards, choosingPartner,
+    S.players.map((p) => p.name)]);
   if (view === 'game' && k === key) return;
   view = 'game';
   key = k;
   const f = t ? t.family : 0;
+  const hands = S.queue.length;
   let body = '';
 
-  if (S.phase === 'lobby') {
+  if (S.phase === 'lobby' && S.paused_turn) {
+    body = `<div class="big-emoji">☕</div><h2>Short break</h2>
+      <p class="say">The host is letting someone join. We'll pick up right where we left off.</p>
+      ${myCards(showCards)}`;
+  } else if (S.phase === 'lobby') {
     body = `<div class="big-emoji">🍵</div><h2>You're in!</h2>
-      <p class="hint">${S.players.length} ${S.players.length === 1 ? 'person' : 'people'} here. Waiting for the host to start.</p>
+      <p class="say">${S.players.length} ${S.players.length === 1 ? 'person' : 'people'} here. Waiting for the host to start.</p>
       ${myCards(true)}
       <div class="howto"><b>How it works</b><ol>
-        <li>On your turn, pick one of your cards (or 🎲 for a surprise) and tell a short, true story.</li>
+        <li>On your turn, choose one of your cards (or 🎲 for a surprise) and tell a short, true story.</li>
         <li>Afterwards, everyone can ask you questions. ✋</li>
-        <li>You get a fresh card after each story.</li></ol></div>`;
-  } else if (mine) {
-    if (S.phase === 'ready') {
-      body = `<h2>You're up! ✨</h2>
-        <p class="hint">Tap the story you'd like to tell.</p>
-        <div class="hand-col">${(S.my_cards || []).map((c, i) => handCardHTML(c, i)).join('')}</div>
-        <div class="stack"><button class="btn" data-act="draw">🎲 Surprise me</button></div>`;
-    } else if (S.phase === 'card') {
-      const flip = S.prompt.text !== lastFlip; lastFlip = S.prompt.text;
-      body = `<div class="eyebrow">Your card</div>${cardHTML(S.prompt, flip)}
-        <p class="hint">Take a breath. ${fmt(S.settings.story_secs * 1000)} on the clock — finishing early is fine.</p>
-        <div class="stack"><button class="btn primary big" data-act="start_story">Start my story</button>
-        <button class="btn" data-act="unplay">Pick a different card</button></div>`;
-    } else if (S.phase === 'telling') {
-      body = `<div class="eyebrow">You're telling</div>${miniCardHTML(S.prompt)}${timerBlock()}
-        <div class="stack"><button class="btn primary big" data-act="end_story">I'm done → questions</button></div>`;
-    } else if (S.phase === 'questions') {
-      const asker = P(S.asker);
-      const q = S.queue.map((id) => {
-        const p = P(id);
-        return `<li><span class="chip fam-${p.family}">${esc(p.name)}</span><span class="grow"></span>
-          <button class="btn small primary" data-act="call_on" data-target="${id}">Call on</button></li>`;
-      }).join('');
-      body = `<h2>Questions for you</h2>
+        <li>Not feeling it? Swap a card, tell it with someone, or pass. No pressure.</li></ol></div>`;
+  } else if (iTell && ['ready', 'card'].includes(S.phase) && choosingPartner) {
+    body = partnerPicker();
+  } else if (iTell && S.phase === 'ready') {
+    body = `<h2>It's your turn ✨</h2>
+      <p class="say">Tap the card you'd like to talk about.</p>
+      ${partnerLine()}
+      <div class="hand-col">${(S.my_cards || []).map((c, i) => handCardHTML(c, i, { play: true, swap: true })).join('')}</div>
+      <div class="stack">
+        <button class="btn" data-act="draw">🎲 Surprise me</button>
+        ${S.partner ? '' : '<button class="btn" data-choosepartner="1">👥 Tell it with someone</button>'}
+        <button class="btn ghost" data-act="pass_turn">Come back to me later</button>
+      </div>`;
+  } else if (iTell && S.phase === 'card') {
+    const flip = S.prompt.text !== lastFlip; lastFlip = S.prompt.text;
+    body = `<div class="eyebrow">Your card</div>${cardHTML(S.prompt, flip)}
+      ${partnerLine()}
+      <p class="say">Take your time. There's a gentle ${fmt(S.settings.story_secs * 1000)} timer, but nobody gets cut off, and short stories are great too.</p>
+      <p class="ideas"><span>Where to start:</span> where were you, who was with you, and what happened?</p>
+      <div class="stack"><button class="btn primary big" data-act="start_story">Start my story</button>
+      <button class="btn" data-act="unplay">Choose a different card</button>
+      ${S.partner ? '' : '<button class="btn" data-choosepartner="1">👥 Tell it with someone</button>'}
+      <button class="btn ghost" data-act="pass_turn">Come back to me later</button></div>`;
+  } else if (iPartner && ['ready', 'card'].includes(S.phase)) {
+    body = `<div class="big-emoji">👥</div><h2>You're telling this one with ${esc(t.name)}</h2>
+      ${S.phase === 'card' ? cardHTML(S.prompt, false) : `<p class="say">${esc(t.name)} is choosing the card…</p>`}
+      ${S.phase === 'card' ? '<div class="stack"><button class="btn primary big" data-act="start_story">Start our story</button></div>' : ''}`;
+  } else if ((iTell || iPartner) && S.phase === 'telling') {
+    const paused = S.timer.ends_at == null;
+    body = `<div class="eyebrow">${iPartner ? `You &amp; ${esc(t.name)} are telling` : S.partner ? `You &amp; ${esc(P(S.partner).name)} are telling` : "You're telling"}</div>
+      ${miniCardHTML(S.prompt)}${timerBlock(f)}
+      <div class="row"><button class="btn small" data-act="${paused ? 'resume' : 'pause'}">${paused ? '▶ Resume' : '❚❚ Pause'}</button>
+        <button class="btn small" data-act="add_time">+30 sec</button></div>
+      ${hands ? `<p class="say">✋ ${hands} ${hands === 1 ? 'question is' : 'questions are'} waiting for you</p>` : ''}
+      <div class="stack"><button class="btn primary big" data-act="end_story">I'm finished — questions welcome</button></div>`;
+  } else if ((iTell || iPartner) && S.phase === 'questions') {
+    const asker = P(S.asker);
+    const q = S.queue.map((id, n) => {
+      const p = P(id);
+      return `<li><span class="qn">${n + 1}</span><span class="chip fam-${p.family}">${esc(p.name)}</span><span class="grow"></span>
+        <button class="btn small primary" data-act="call_on" data-target="${id}">Call on</button></li>`;
+    }).join('');
+    body = `<h2>Questions for you</h2>
+      ${asker ? `<div class="asking">🎤 <b>${esc(asker.name)}</b> is asking</div>` : ''}
+      ${q ? `<ol class="queue">${q}</ol>` : (asker ? '' : '<p class="say">People can tap ✋ on their phone, or just ask out loud.</p>')}
+      <p class="hint"><span id="tval"></span> <span id="tnote"></span></p>
+      <div class="stack"><button class="btn primary big" data-act="next_turn">That's my story — next!</button></div>`;
+  } else if (S.phase === 'ready') {
+    body = `<div class="eyebrow">Up next</div><div class="teller-name fam-${f}">${tellerNames()}</div>
+      <p class="say">is choosing a card…</p>
+      ${myCards(showCards)}`;
+  } else if (S.phase === 'card') {
+    const flip = S.prompt.text !== lastFlip; lastFlip = S.prompt.text;
+    body = `<div class="eyebrow">${tellerNames()} chose</div>${cardHTML(S.prompt, flip)}`;
+  } else if (S.phase === 'telling') {
+    body = `<div class="eyebrow fam-${f}">${tellerNames()} ${S.partner ? 'are' : 'is'} telling</div>${miniCardHTML(S.prompt)}
+      ${timerBlock(f)}
+      <div class="stack">${handButton()}</div>
+      <p class="say">Curious about something? Tap ✋ and you'll get a turn to ask after the story. Then enjoy the story 🙂</p>
+      ${questionIdeas()}
+      ${myCards(showCards)}`;
+  } else if (S.phase === 'questions') {
+    const asker = P(S.asker);
+    if (S.asker === me.id) {
+      body = `<div class="asking-me">🎤 Your turn to ask ${tellerNames()} something!</div>
+        ${miniCardHTML(S.prompt)}
+        ${questionIdeas()}
+        <div class="stack"><button class="btn" data-act="done_asking">I've asked my question</button></div>`;
+    } else {
+      body = `<div class="eyebrow">Questions for</div><div class="teller-name fam-${f}">${tellerNames()}</div>
+        ${miniCardHTML(S.prompt)}
         ${asker ? `<div class="asking">🎤 <b>${esc(asker.name)}</b> is asking</div>` : ''}
-        ${q ? `<ol class="queue">${q}</ol>` : (asker ? '' : '<p class="hint">Waiting for hands to go up…</p>')}
-        <p class="hint"><span id="tval"></span> <span id="tnote"></span></p>
-        <div class="stack"><button class="btn primary big" data-act="next_turn">That's my story — next!</button></div>`;
-    }
-  } else {
-    if (S.phase === 'ready') {
-      body = `<div class="eyebrow">Up next</div><div class="teller-name fam-${f}">${esc(t.name)}</div><p class="hint">is choosing a card…</p>
-        ${myCards(showCards)}`;
-    } else if (S.phase === 'card') {
-      const flip = S.prompt.text !== lastFlip; lastFlip = S.prompt.text;
-      body = `<div class="eyebrow">${esc(t.name)} chose</div>${cardHTML(S.prompt, flip)}`;
-    } else if (S.phase === 'telling') {
-      body = `<div class="eyebrow fam-${f}">${esc(t.name)} is telling</div>${miniCardHTML(S.prompt)}
-        <div class="fam-${f}">${timerBlock()}</div>
         <div class="stack">${handButton()}</div>
-        <p class="hint">Got a question? Raise your hand now — you'll be in line for after the story.</p>
+        ${me.hand ? '' : questionIdeas()}
         ${myCards(showCards)}`;
-    } else if (S.phase === 'questions') {
-      const asker = P(S.asker);
-      if (S.asker === me.id) {
-        body = `<div class="asking-me">🎤 You're up — ask ${esc(t.name)} your question!</div>
-          <div class="stack"><button class="btn" data-act="done_asking">Done asking</button></div>`;
-      } else {
-        body = `<div class="eyebrow">Questions for</div><div class="teller-name fam-${f}">${esc(t.name)}</div>
-          ${miniCardHTML(S.prompt)}
-          ${asker ? `<div class="asking">🎤 <b>${esc(asker.name)}</b> is asking</div>` : ''}
-          <div class="stack">${handButton()}</div>
-          ${myCards(showCards)}`;
-      }
     }
   }
 
@@ -210,13 +267,8 @@ function tick() {
   if (ring) { ring.classList.toggle('near', near); ring.classList.toggle('over', over); }
   const note = $('#tnote');
   if (note) {
-    if (S.phase === 'telling') note.textContent = paused ? 'paused' : over ? 'time to wrap up' : near ? 'bring it home' : '';
-    else note.textContent = over ? 'one last question' : 'for questions';
-  }
-  const k = `${S.story_no}-${S.phase}`;
-  if (S.teller === me.id && S.phase === 'telling' && over && !paused && buzzed !== k) {
-    buzzed = k;
-    if (navigator.vibrate) navigator.vibrate([120, 80, 120]);
+    if (S.phase === 'telling') note.textContent = paused ? 'paused' : over ? 'finish whenever you’re ready' : near ? 'about 30 seconds left' : '';
+    else note.textContent = over ? 'time for one last question' : 'left for questions';
   }
 }
 setInterval(tick, 250);
@@ -226,8 +278,27 @@ document.addEventListener('click', (e) => {
   if (fam) { pickedFamily = +fam.dataset.fam; renderJoin(); return; }
 
   const play = e.target.closest('[data-play]');
-  if (play) { pAct('play_card', { index: +play.dataset.play }); return; }
+  if (play) {
+    const card = (S.my_cards || [])[+play.dataset.play];
+    if (card) pAct('play_card', { text: card.text });
+    return;
+  }
+  const sw = e.target.closest('[data-swap]');
+  if (sw) {
+    const card = (S.my_cards || [])[+sw.dataset.swap];
+    if (card) pAct('swap_card', { text: card.text });
+    return;
+  }
   if (e.target.closest('[data-togglecards]')) { showCards = !showCards; key = ''; render(); return; }
+  if (e.target.closest('[data-choosepartner]')) { choosingPartner = true; key = ''; render(); return; }
+  const partner = e.target.closest('[data-partner]');
+  if (partner) {
+    choosingPartner = false;
+    key = '';
+    pAct('set_partner', { target: partner.dataset.partner || null });
+    render();
+    return;
+  }
 
   const sf = e.target.closest('[data-setfam]');
   if (sf) {
@@ -236,6 +307,7 @@ document.addEventListener('click', (e) => {
     return;
   }
   if (e.target.closest('[data-repick]')) { repick = true; render(); return; }
+  if (e.target.closest('[data-cancelpick]')) { repick = false; render(); return; }
 
   const r = e.target.closest('[data-react]');
   if (r) {

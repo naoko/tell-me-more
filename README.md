@@ -21,7 +21,7 @@ make run            # or: python3 server.py
 It prints three addresses:
 
 ```
-Tablet (host):   http://192.168.1.20:8765/host?key=a1b2c3
+Tablet (host):   http://192.168.1.20:8765/host?key=Xq3v9LmT2aKp
 Guests' phones:  http://192.168.1.20:8765
 Keepsake:        http://192.168.1.20:8765/keepsake
 ```
@@ -31,15 +31,22 @@ Keepsake:        http://192.168.1.20:8765/keepsake
 3. Guests scan the QR code on the tablet (or type the address) and type their name.
 4. For anyone who'd rather not use a phone, use "Add someone without a phone" on the tablet; the host taps for them.
 
-The host key changes each run. To keep the host link the same so you can bookmark it on the tablet, use `make run KEY=something` (or `--host-key something`). Use `PORT=9000` (or `--port 9000`) to change the port.
+The host key changes each run. To keep the host link the same so you can bookmark it on the tablet, use `make run KEY=something` (or `--host-key something`), and pick something a curious guest wouldn't guess. After 10 wrong keys in a minute, a device has to wait. Use `PORT=9000` (or `--port 9000`) to change the port.
 
 ## How a turn works
 
-1. **Ready.** The next storyteller is picked automatically. Everyone tells once before anyone tells twice. If you've added families, turns also rotate between them. Tap any name to pick someone else instead.
-2. **Pick a card.** Everyone holds **3 private cards** on their phone from the moment they join, so they can think about their story while others are telling theirs. On their turn they tap the one they want, or 🎲 **Surprise me** for a blind draw. "Pick a different card" puts it back. After telling, they get a fresh card. For someone without a phone, the tablet shows their cards to read out and tap. The host can also write a one-off prompt ("Tell us about the proposal!").
-3. **Tell.** A ring timer counts down (2½ min by default). It turns gold for the last 30 seconds and plays a soft chime at zero. Nothing cuts anyone off, and the host can pause or add 30 seconds.
-4. **Questions.** People raise a hand on their phone. If you've added families, **hands from a different family than the storyteller's go to the front of the line**. The storyteller or host taps "Call on".
+1. **Ready.** The next storyteller is picked automatically. Everyone gets a turn before anyone gets two. If you've added families, turns also rotate between them. Tap any name to pick someone else instead.
+2. **Choose a card.** Everyone holds **3 private cards** on their phone from the moment they join, so they can think about their story while others are telling theirs. Every hand always has at least one Light card. On their turn they tap the one they want, or 🎲 **Surprise me** for a blind draw. After telling, they get a fresh card. For someone without a phone, the tablet shows their cards to read out and tap. The host can also write a one-off prompt.
+3. **Tell.** A ring timer counts down (2½ min by default). It turns gold for the last 30 seconds and plays a soft chime at zero. Nothing cuts anyone off. The storyteller or host can pause or add 30 seconds.
+4. **Questions.** People raise a hand on their phone; their phone suggests a few easy questions in case nothing comes to mind. People who haven't asked yet go ahead of people who have, and if you've added families, people from a different family than the storyteller's go first. The storyteller or host taps "Call on". Asking out loud works too.
 5. **Next storyteller →**
+
+**Nobody gets put on the spot.** Any time, a guest can tap ↻ next to a card to swap it for a new one. On their turn they can also:
+
+- **👥 Tell it with someone**: a couple or a parent and child share one story.
+- **Come back to me later**: no story this time; they move to the end of the round.
+
+The host has the same "Come back to … later" button on the tablet.
 
 Phones can also send ❤️ 😂 😮 👏 🥲, which float up on the tablet.
 
@@ -59,9 +66,18 @@ The buttons at the top of the tablet control which prompts can be dealt. Unlocki
 
 - **Light**: easy, fun stories. Good for the first round.
 - **+ Warm**: adds family, love, advice, and growing up.
-- **+ Deeper**: adds hard years, fears, and people we miss. Open this only when the room feels ready.
+- **+ Deeper**: adds grief, hard years, and turning points. It's hidden until you turn it on in ⚙︎ Settings, because it suits close friends better than a first meeting.
 
-There are 64 prompts. Edit `prompts.json` to add your own; changes apply to the next card dealt, with no restart. Since everyone holds 3 cards, keep at least ~4 Light prompts per guest.
+There are 88 prompts (46 Light, 34 Warm, 8 Deeper). Edit `prompts.json` to add your own; changes apply to the next card dealt, with no restart. If an edit has a typo, the game keeps using the last good version and prints a warning in the terminal. Since everyone holds 3 cards, keep at least ~4 Light prompts per guest.
+
+## Hosting tips
+
+- **Open with 30 seconds:** "It's not a test. Tell a true story, short is great, and you can always pass." Then tap **Go first** on yourself and tell a light, slightly self-deprecating story of about a minute and a half to set the tone.
+- **Next, someone outgoing** from the other family. Don't start with the couple or the shyest guest.
+- **One full round** (everyone once) is the centerpiece: plan 45–60 minutes, between the main course and dessert. Offer a second round only if the table asks. With 8 or more guests, set 2 minutes for stories and 2 for questions.
+- **Start on Light,** then unlock Warm after a few stories. Every hand keeps a Light card, so Warm stays optional.
+- **Phones face-up on the table, eyes on the storyteller.**
+- Don't spring a custom prompt about the couple (like the proposal) on them unless they've agreed to it beforehand.
 
 ## Keepsake
 
