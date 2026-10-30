@@ -31,7 +31,7 @@ Keepsake:        http://192.168.1.20:8765/keepsake
 3. Guests scan the QR code on the tablet (or type the address) and type their name.
 4. For anyone who'd rather not use a phone, use "Add someone without a phone" on the tablet; the host taps for them.
 
-The host key changes each run. To keep the host link the same so you can bookmark it on the tablet, use `make run KEY=something` (or `--host-key something`), and pick something a curious guest wouldn't guess. After 10 wrong keys in a minute, a device has to wait. Use `PORT=9000` (or `--port 9000`) to change the port.
+The host key changes each run. To keep it the same, use `make run KEY=something` (or `--host-key something`), and pick something a curious guest wouldn't guess. Then the tablet can just open `/host`: it asks for the key once and remembers it on that device, and the key is removed from the address bar so guests can't read it over your shoulder. Tap **Just watch** instead to show the join screen on a TV without host controls. After 10 wrong keys in a minute, a device has to wait. Use `PORT=9000` (or `--port 9000`) to change the port.
 
 ## How a turn works
 

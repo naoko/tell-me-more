@@ -36,7 +36,22 @@
 
   <div id="floats"></div>
   <div id="conn">Reconnecting…</div>
-  <div id="keywarn" hidden>This isn't the host link, so buttons here won't work. Open the link with <b>?key=…</b> that the server printed when it started.</div>
+  <div id="keywarn" hidden>View only: buttons here won't work. <button type="button" class="btn small" id="keyagain">Enter host key</button></div>
+
+  <dialog id="keydlg">
+    <form id="keyform">
+      <h2>Host this game</h2>
+      <p class="hint">Enter the host key to run the game from this screen. It's saved on this device, so you only type it once.</p>
+      <label>Host key
+        <input name="key" type="password" autocomplete="current-password" autocapitalize="off" autocorrect="off" spellcheck="false" required>
+        <span class="hint" id="keyerr" role="alert"></span>
+      </label>
+      <div class="row left">
+        <button class="btn primary" type="submit">Unlock</button>
+        <button class="btn ghost" type="button" id="keywatch">Just watch</button>
+      </div>
+    </form>
+  </dialog>
 
   <dialog id="settings">
     <form method="dialog" id="setform">
@@ -97,7 +112,15 @@
 
 <script src="/web/common.js"></script>
 <script>
-const KEY = new URLSearchParams(location.search).get('key') || '';
+// The host key comes from the link (?key=…) or from this device's saved copy.
+// A key typed into the prompt is saved, so the tablet needs no special bookmark.
+const KEY_STORE = 'tmm-host-key';
+const store = {
+  get() { try { return localStorage.getItem(KEY_STORE) || ''; } catch (_) { return ''; } },
+  set(v) { try { localStorage.setItem(KEY_STORE, v); } catch (_) { /* private mode */ } },
+  clear() { try { localStorage.removeItem(KEY_STORE); } catch (_) { /* private mode */ } },
+};
+let KEY = new URLSearchParams(location.search).get('key') || store.get();
 const { act, esc, fmt, remaining, chime, toast, cardHTML, miniCardHTML, handCardHTML } = TellMeMore;
 const $ = (s) => document.querySelector(s);
 let S = null, stageKey = '', sideKey = '', lastFlip = '', chimed = '';
@@ -107,11 +130,62 @@ const hostAct = (a, extra = {}) => act(a, { key: KEY, ...extra }).catch((e) => t
 const P = (id) => S && S.players.find((p) => p.id === id);
 const famName = (i) => S.settings.families[i];
 
-TellMeMore.connect((s) => {
+const conn = TellMeMore.connect((s) => {
   S = s;
   render();
 }, () => `?key=${encodeURIComponent(KEY)}`);
-act('check_host', { key: KEY }).then((r) => { if (!r.ok) $('#keywarn').hidden = false; }).catch(() => {});
+
+// Keep the key out of the address bar, where guests near the tablet could read it.
+function hideKeyFromURL() {
+  const u = new URL(location.href);
+  if (!u.searchParams.has('key')) return;
+  u.searchParams.delete('key');
+  history.replaceState(null, '', u.pathname + u.search + u.hash);
+}
+
+function becomeHost(key) {
+  KEY = key;
+  store.set(key);
+  hideKeyFromURL();
+  $('#keywarn').hidden = true;
+  conn.reopen(); // the stream includes host-only details once the key is right
+}
+
+function askForKey(msg = '') {
+  $('#keyerr').textContent = msg;
+  $('#keyform').reset();
+  if (!$('#keydlg').open) $('#keydlg').showModal();
+  $('#keyform input').focus();
+}
+
+$('#keyform').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const key = e.target.elements.key.value.trim();
+  if (!key) return;
+  try {
+    const r = await act('check_host', { key });
+    if (!r.ok) return askForKey("That's not the host key.");
+    $('#keydlg').close();
+    becomeHost(key);
+  } catch (err) {
+    askForKey(err.message); // e.g. too many wrong tries: wait a minute
+  }
+});
+$('#keywatch').addEventListener('click', () => { $('#keydlg').close(); $('#keywarn').hidden = false; });
+$('#keydlg').addEventListener('cancel', () => { $('#keywarn').hidden = false; }); // Esc = just watch
+$('#keyagain').addEventListener('click', () => askForKey());
+
+(async () => {
+  if (!KEY) return askForKey();
+  try {
+    const r = await act('check_host', { key: KEY });
+    if (r.ok) return becomeHost(KEY);
+  } catch (_) { /* fall through and ask */ }
+  // A saved key stops working when the server starts with a different one.
+  store.clear();
+  KEY = '';
+  askForKey('The saved host key no longer works. Enter the current one.');
+})();
 
 function render() {
   document.querySelectorAll('[data-level]').forEach((b) => b.classList.toggle('on', +b.dataset.level === S.settings.max_level));
