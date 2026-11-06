@@ -31,7 +31,13 @@ Keepsake:        http://192.168.1.20:8765/keepsake
 3. Guests scan the QR code on the tablet (or type the address) and type their name.
 4. For anyone who'd rather not use a phone, use "Add someone without a phone" on the tablet; the host taps for them.
 
-The host key changes each run. To keep the host link the same so you can bookmark it on the tablet, use `make run KEY=something` (or `--host-key something`), and pick something a curious guest wouldn't guess. After 10 wrong keys in a minute, a device has to wait. Use `PORT=9000` (or `--port 9000`) to change the port.
+The host key changes each run. To keep the host link the same so you can bookmark it on the tablet, save a key in `.host-key` once:
+
+```
+echo something-guests-wont-guess > .host-key
+```
+
+`make run` then uses it every time. Git ignores `.host-key`, so the key stays off GitHub. `make run KEY=other` (or `--host-key other`) overrides it for one run. After 10 wrong keys in a minute, a device has to wait. Use `PORT=9000` (or `--port 9000`) to change the port.
 
 ## How a turn works
 

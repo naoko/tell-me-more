@@ -3,3 +3,6 @@ stories/
 __pycache__/
 *.pyc
 .DS_Store
+
+# Your default host key (see README)
+.host-key
