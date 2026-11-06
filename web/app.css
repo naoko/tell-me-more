@@ -228,7 +228,9 @@ dialog textarea { font: inherit; font-size: 1.05rem; padding: .7em .9em; border-
 .tag.soft { background: var(--gold); color: var(--ink); }
 .linkish { border: 0; background: none; color: var(--muted); font-size: .95rem; cursor: pointer; padding: .2em .1em; }
 
-#keywarn { position: fixed; top: 0; left: 0; right: 0; background: #a23b2a; color: #fff; padding: .8rem 1.2rem; font-weight: 600; z-index: 20; text-align: center; }
+#keywarn { position: fixed; top: 0; left: 0; right: 0; background: #a23b2a; color: #fff; padding: .6rem 1.2rem; font-weight: 600; z-index: 20; text-align: center; }
+#keywarn .btn { margin-left: .6rem; vertical-align: middle; background: #fff; color: #a23b2a; border-color: #fff; }
+#keyerr:not(:empty) { color: #a23b2a; font-weight: 600; }
 
 /* floating reactions */
 #floats { position: fixed; inset: 0; pointer-events: none; overflow: hidden; z-index: 10; }
