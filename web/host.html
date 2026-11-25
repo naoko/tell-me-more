@@ -90,7 +90,8 @@
         <button type="button" class="btn small" data-act="lobby">Show join screen</button>
         <button type="button" class="btn small" data-act="finish">Wrap up the evening</button>
         <a class="btn small" href="/keepsake" target="_blank">Story keepsake ↗</a>
-        <button type="button" class="btn small danger" data-act="reset">New game</button>
+        <button type="button" class="btn small danger" data-act="reset">New game · same people</button>
+        <button type="button" class="btn small danger" data-act="restart">Start over · everyone rejoins</button>
       </div>
     </form>
   </dialog>
@@ -319,6 +320,7 @@ function renderStage() {
       <div class="row">
         <a class="btn primary" href="/keepsake" target="_blank">Open the keepsake ↗</a>
         <button class="btn ghost" data-act="start">Keep playing</button>
+        <button class="btn ghost" data-act="restart">Start over with new guests</button>
       </div>
     </div>`;
   }
@@ -422,6 +424,9 @@ document.addEventListener('click', (e) => {
       return;
     case 'reset':
       if (confirm('Start a new game? Everyone stays, but turns and the story list start over. (Tonight’s stories so far stay saved in the stories folder.)')) { hostAct(a); $('#settings').close(); }
+      return;
+    case 'restart':
+      if (confirm('Start over? Everyone is removed and each phone asks for a name again — good for a new group. (Tonight’s stories stay saved in the stories folder.)')) { hostAct(a); $('#settings').close(); }
       return;
     case 'move': {
       const p = P(target);

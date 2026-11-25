@@ -148,10 +148,13 @@ const TellMeMore = (() => {
   }
 
   // A small card. With `play`, tapping it chooses it; with `swap`, a ↻ button trades it in.
-  function handCardHTML(card, index, { play = false, swap = false } = {}) {
-    const tag = play ? 'button' : 'div';
-    const attrs = play ? ` data-play="${index}"` : '';
-    const inner = `<${tag} class="hand-card lvl-${card.level}"${attrs}><span class="lvl-tag">${LEVEL_LABEL[card.level] || ''}</span>${esc(card.text)}</${tag}>`;
+  // With `wait` it isn't choosable yet, but it stays a button so a tap gets an answer
+  // instead of silence — children tap the card they want long before their turn.
+  function handCardHTML(card, index, { play = false, swap = false, wait = false } = {}) {
+    const tag = play || wait ? 'button' : 'div';
+    const attrs = play ? ` data-play="${index}"` : wait ? ' data-waitcard="1"' : '';
+    const cue = play ? '<span class="pickcue">Tap to choose this one</span>' : '';
+    const inner = `<${tag} class="hand-card lvl-${card.level}${wait ? ' waiting' : ''}"${attrs}><span class="lvl-tag">${LEVEL_LABEL[card.level] || ''}</span>${esc(card.text)}${cue}</${tag}>`;
     if (!swap) return inner;
     return `<div class="hand-item">${inner}<button class="swap" data-swap="${index}" aria-label="Swap this card for a new one" title="Swap for a new card">↻</button></div>`;
   }

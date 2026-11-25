@@ -733,6 +733,19 @@ class Game:
         for pid in self.order:
             self._fill(pid)
 
+    def _a_restart(self, d, host, me):
+        """Start over with a new set of guests: every phone goes back to the join screen.
+        Stories told so far are already saved, so only the guest list and the turns are cleared."""
+        self._need(host)
+        if self._turn_phase() in ("telling", "questions"):
+            self._record_story()  # don't lose a story that was being told
+        self.players = {}
+        self.tokens = {}
+        self.order = []
+        self.last_react = {}
+        self.reactions = []
+        self._new_session()
+
     def _a_pick_teller(self, d, host, me):
         self._need(host)
         pid = str(d.get("target") or "")

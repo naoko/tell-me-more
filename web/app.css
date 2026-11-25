@@ -116,7 +116,13 @@ a.btn { color: var(--ink); }
 .hand-card .lvl-tag { top: .5rem; left: 1.2rem; font-family: var(--sans); font-size: .62rem; }
 button.hand-card { cursor: pointer; touch-action: manipulation; transition: transform .1s ease, box-shadow .1s ease; }
 button.hand-card:active { transform: scale(.98); }
-button.hand-card:hover { box-shadow: var(--shadow), inset 4px 0 0 var(--lvl), 0 0 0 2px var(--lvl); }
+button.hand-card:not(.waiting):hover { box-shadow: var(--shadow), inset 4px 0 0 var(--lvl), 0 0 0 2px var(--lvl); }
+/* A card you can choose right now says so and sits up off the page. */
+.pickcue { display: block; margin-top: .6rem; font-family: var(--sans); font-size: .68rem; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--lvl); }
+button.hand-card:not(.waiting) { box-shadow: var(--shadow), inset 4px 0 0 var(--lvl), 0 0 0 1.5px var(--lvl); }
+/* A card you're only holding for later lies flat: still tappable, and a tap says why not yet. */
+.hand-card.waiting { box-shadow: inset 4px 0 0 var(--lvl), inset 0 0 0 1px var(--line); cursor: default; }
+.hand-card.waiting:active { transform: scale(.995); }
 .hand-col { display: grid; gap: .7rem; margin: .8rem 0; }
 .hand-item { display: flex; gap: .5rem; align-items: stretch; }
 .hand-item .hand-card { flex: 1; }

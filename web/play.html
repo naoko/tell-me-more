@@ -97,7 +97,7 @@ function renderPick() {
 
 // Your private cards, to think about while you wait. ↻ swaps one for a new card.
 function myCards(open) {
-  const cards = (S.my_cards || []).map((c, i) => handCardHTML(c, i, { swap: true })).join('');
+  const cards = (S.my_cards || []).map((c, i) => handCardHTML(c, i, { swap: true, wait: true })).join('');
   if (!cards) return '';
   if (!open) return `<button class="btn ghost peek" data-togglecards="1">See my story cards</button>`;
   return `<section class="mycards"><div class="eyebrow">Your story cards</div>
@@ -287,6 +287,14 @@ document.addEventListener('click', (e) => {
   if (play) {
     const card = (S.my_cards || [])[+play.dataset.play];
     if (card) pAct('play_card', { text: card.text });
+    return;
+  }
+  const wc = e.target.closest('[data-waitcard]');
+  if (wc) {
+    const t = P(S.teller);
+    toast(S.phase === 'lobby' ? 'Keep it for later — the host starts the stories'
+      : t && t.id !== me.id ? `It's ${t.name}'s turn. You'll pick a card when it's yours`
+      : 'You’ll pick a card when it’s your turn');
     return;
   }
   const sw = e.target.closest('[data-swap]');
