@@ -18,6 +18,8 @@ make run            # or: python3 server.py
 
 `make run` uses [uv](https://docs.astral.sh/uv/) if it's installed (pinned Python 3.12) and plain `python3` otherwise. There are no dependencies, so no virtualenv is needed.
 
+After pulling a new version, `make restart` stops the running game and starts it again on the same port (`make stop` just stops it). Changes under `web/` need only a reload on each phone; changes to `server.py` need the restart. Guests are signed out when the server stops, so they type their names again — each story is written to `stories/` as it's told, and the next start carries on with tonight's list.
+
 It prints three addresses:
 
 ```
